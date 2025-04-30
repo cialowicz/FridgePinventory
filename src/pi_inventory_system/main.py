@@ -5,7 +5,7 @@ import time
 import logging
 from pathlib import Path
 from .inventory_db import (
-    connect_db,
+    init_db,
     add_item,
     remove_item,
     set_item,
@@ -21,7 +21,7 @@ from .audio_feedback import play_feedback_sound, output_confirmation
 def main():
     """Main function to run the inventory system."""
     # Initialize the database
-    connect_db()
+    init_db()
     
     # Initialize the display
     initialize_display()

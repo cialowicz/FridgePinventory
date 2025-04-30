@@ -1,4 +1,4 @@
-# Pi Inventory Management System
+# Fridge Pi Inventory Management System
 
 An inventory management system for a chest freezer, built using a Raspberry Pi 5. It features a voice interface for managing inventory items with smart item name recognition and visual feedback via an eInk display.
 
@@ -25,9 +25,18 @@ An inventory management system for a chest freezer, built using a Raspberry Pi 5
    # For Raspberry Pi OS / Debian / Ubuntu
    sudo apt-get update
    sudo apt-get install -y portaudio19-dev python3-dev
+
+   # For macOS
+   brew install portaudio
    ```
 
-2. Install the project and its dependencies:
+2. Create and activate a virtual environment (recommended):
+   ```bash
+   python -m venv .venv
+   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+   ```
+
+3. Install the project and its dependencies:
    ```bash
    # Install in development mode
    pip install -e .
@@ -35,21 +44,48 @@ An inventory management system for a chest freezer, built using a Raspberry Pi 5
    pip install -e ".[test]"
    ```
 
-3. Connect the hardware components to the Raspberry Pi:
+4. Connect the hardware components to the Raspberry Pi:
    - Connect the PIR sensor to GPIO pin 4
    - Connect the Inky wHAT display via SPI
    - Connect USB speaker and microphone
 
-4. Create the sounds directory and add audio files:
+5. Create the sounds directory and add audio files:
    ```bash
    mkdir sounds
    # Add success.wav and error.wav for audio feedback
    ```
 
-5. Run the application:
-   ```bash
-   python src/main.py
-   ```
+## Running the Application
+
+### On Raspberry Pi (with hardware)
+```bash
+# Make sure you're in the virtual environment
+source .venv/bin/activate
+
+# Run the application
+python -m src.pi_inventory_system.main
+```
+
+### On Development Machine (simulation mode)
+```bash
+# Make sure you're in the virtual environment
+source .venv/bin/activate
+
+# Run the application
+python -m src.pi_inventory_system.main
+```
+
+The application will:
+1. Initialize the database and run any pending migrations
+2. Start the display manager
+3. Begin listening for motion detection
+4. When motion is detected, it will:
+   - Listen for voice commands
+   - Process the commands
+   - Update the inventory
+   - Provide audio and visual feedback
+
+To exit the application, press Ctrl+C.
 
 ## Voice Commands
 - "Add X" - Add one of item X
@@ -74,7 +110,7 @@ The system recognizes various forms of these items:
 
 ## Development
 - Tests can be run using: `python -m pytest`
-- New items can be added in `src/item_normalizer.py`
+- New items can be added in `src/pi_inventory_system/item_normalizer.py`
 - Audio feedback sounds can be customized by replacing files in the `sounds` directory
 - Database migrations are stored in the `migrations` directory
   - Each migration is a SQL file named with a number prefix (e.g., `000_migrations_tracking.sql`)
