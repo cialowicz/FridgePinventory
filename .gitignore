@@ -19,6 +19,8 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+src/pi_inventory_system.egg-info
+src/pi_inventory_system.egg-info/*
 
 # Virtual Environment
 .env
