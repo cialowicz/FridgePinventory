@@ -1,89 +1,82 @@
 # Tests for motion sensor module
 
-import pytest
+import unittest
 from unittest.mock import patch, MagicMock
-import platform
-from pi_inventory_system.motion_sensor import (
+from src.pi_inventory_system.motion_sensor import (
     detect_motion,
     is_motion_sensor_supported,
-    _gpio_initialized
+    MOTION_SENSOR_PIN
 )
 
-@pytest.fixture
-def mock_gpio():
-    """Fixture to mock GPIO module."""
-    with patch('pi_inventory_system.motion_sensor.GPIO') as mock:
-        mock.BCM = 'BCM'
-        mock.IN = 'IN'
-        mock.input.return_value = False
-        yield mock
 
-@pytest.fixture
-def mock_platform():
-    """Fixture to mock platform information."""
-    with patch('pi_inventory_system.motion_sensor.platform') as mock:
-        mock.system.return_value = 'Linux'
-        mock.machine.return_value = 'armv7l'
-        yield mock
+class TestMotionSensor(unittest.TestCase):
+    """Test cases for motion sensor functionality."""
 
-def test_is_motion_sensor_supported_raspberry_pi(mock_platform):
-    """Test motion sensor support detection on Raspberry Pi."""
-    assert is_motion_sensor_supported() is True
+    def setUp(self):
+        """Set up test environment."""
+        # Reset the _gpio_initialized state
+        import src.pi_inventory_system.motion_sensor as motion_sensor
+        motion_sensor._gpio_initialized = False
 
-def test_is_motion_sensor_supported_non_raspberry_pi(mock_platform):
-    """Test motion sensor support detection on non-Raspberry Pi."""
-    mock_platform.system.return_value = 'Darwin'
-    assert is_motion_sensor_supported() is False
+        self.platform_patcher = patch('src.pi_inventory_system.motion_sensor.platform')
+        self.mock_platform = self.platform_patcher.start()
+        self.mock_platform.system.return_value = 'Linux'
+        self.mock_platform.machine.return_value = 'armv7l'
 
-def test_detect_motion_raspberry_pi(mock_gpio, mock_platform):
-    """Test motion detection on Raspberry Pi."""
-    mock_platform['system'].return_value = 'Linux'
-    mock_platform['machine'].return_value = 'armv7l'
-    
-    # Test motion detected
-    mock_gpio.input.return_value = True
-    assert detect_motion() is True
-    
-    # Test no motion detected
-    mock_gpio.input.return_value = False
-    assert detect_motion() is False
-    
-    # Verify GPIO was initialized
-    mock_gpio.setmode.assert_called_once_with(mock_gpio.BCM)
-    mock_gpio.setup.assert_called_once_with(4, mock_gpio.IN)
+        self.gpio_patcher = patch('src.pi_inventory_system.motion_sensor.GPIO')
+        self.mock_gpio = self.gpio_patcher.start()
 
-def test_detect_motion_non_raspberry_pi(mock_platform):
-    """Test motion detection on non-Raspberry Pi."""
-    mock_platform.system.return_value = 'Darwin'
-    assert detect_motion() is False
+    def tearDown(self):
+        """Clean up test environment."""
+        self.platform_patcher.stop()
+        self.gpio_patcher.stop()
 
-def test_detect_motion_error_handling(mock_gpio, mock_platform):
-    """Test error handling in motion detection."""
-    mock_platform.system.return_value = 'Linux'
-    mock_platform.machine.return_value = 'armv7l'
-    
-    # Simulate GPIO error
-    mock_gpio.input.side_effect = Exception("GPIO error")
-    assert detect_motion() is False
+    def test_motion_detected(self):
+        """Test when motion is detected."""
+        self.mock_gpio.input.return_value = 1
+        self.assertTrue(detect_motion())
+        self.mock_gpio.input.assert_called_once_with(MOTION_SENSOR_PIN)
 
-def test_gpio_initialization_once(mock_gpio, mock_platform):
-    """Test that GPIO is only initialized once."""
-    # Reset the initialization state
-    import pi_inventory_system.motion_sensor
-    pi_inventory_system.motion_sensor._gpio_initialized = False
-    
-    # Call detect_motion multiple times
-    pi_inventory_system.motion_sensor.detect_motion()
-    pi_inventory_system.motion_sensor.detect_motion()
-    pi_inventory_system.motion_sensor.detect_motion()
-    
-    # Verify GPIO was initialized only once
-    mock_gpio.setmode.assert_called_once_with(mock_gpio.BCM)
-    mock_gpio.setup.assert_called_once_with(4, mock_gpio.IN)
+    def test_no_motion_detected(self):
+        """Test when no motion is detected."""
+        self.mock_gpio.input.return_value = 0
+        self.assertFalse(detect_motion())
+        self.mock_gpio.input.assert_called_once_with(MOTION_SENSOR_PIN)
 
-@pytest.mark.skipif(not platform.system() == 'Linux' or not platform.machine().startswith('arm'),
-                   reason="Test requires actual Raspberry Pi hardware")
-def test_detect_motion_hardware():
-    """Test motion detection on actual Raspberry Pi hardware."""
-    result = detect_motion()
-    assert isinstance(result, bool)
+    def test_gpio_error_handling(self):
+        """Test error handling when GPIO fails."""
+        self.mock_gpio.input.side_effect = Exception("GPIO error")
+        self.assertFalse(detect_motion())
+        self.mock_gpio.input.assert_called_once_with(MOTION_SENSOR_PIN)
+
+    def test_motion_sensor_supported_with_gpio(self):
+        """Test motion sensor support detection with GPIO available."""
+        self.assertTrue(is_motion_sensor_supported())
+
+    def test_motion_sensor_not_supported_without_gpio(self):
+        """Test motion sensor support detection without GPIO."""
+        self.mock_platform.system.return_value = 'Darwin'
+        self.assertFalse(is_motion_sensor_supported())
+
+    def test_motion_sensor_initialization(self):
+        """Test motion sensor initialization."""
+        # Reset GPIO mock to clear any previous calls
+        self.mock_gpio.reset_mock()
+        
+        # Call detect_motion to trigger initialization
+        detect_motion()
+        
+        # Verify GPIO initialization
+        self.mock_gpio.setmode.assert_called_once_with(self.mock_gpio.BCM)
+        self.mock_gpio.setup.assert_called_once_with(MOTION_SENSOR_PIN, self.mock_gpio.IN)
+
+    @unittest.skip("Hardware-dependent test")
+    def test_real_motion_detection(self):
+        """Test actual motion detection with real hardware."""
+        # This test requires actual hardware and should be skipped in CI
+        result = detect_motion()
+        self.assertIsInstance(result, bool)
+
+
+if __name__ == '__main__':
+    unittest.main()

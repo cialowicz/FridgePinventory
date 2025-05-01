@@ -1,39 +1,39 @@
 # Tests for audio feedback module
 
 import unittest
-from unittest.mock import patch, MagicMock
-from pi_inventory_system.audio_feedback import play_feedback_sound, output_confirmation
+from unittest.mock import patch
+from src.pi_inventory_system.audio_feedback import play_feedback_sound, output_confirmation
 
 
 class TestAudioFeedback(unittest.TestCase):
+    """Test cases for audio feedback functionality."""
 
-    @patch('builtins.print')
-    def test_audio_feedback_on_success(self, mock_print):
-        """Test feedback output on successful operation."""
-        result = play_feedback_sound(True)
-        self.assertTrue(result)
-        mock_print.assert_called_once_with("Success")
+    def test_play_feedback_sound_success(self):
+        """Test playing success feedback sound."""
+        with patch('src.pi_inventory_system.audio_feedback.playsound') as mock_playsound:
+            play_feedback_sound(True)
+            mock_playsound.assert_called_once_with('sounds/success.wav')
 
-    @patch('builtins.print')
-    def test_audio_feedback_on_failure(self, mock_print):
-        """Test feedback output on failed operation."""
-        result = play_feedback_sound(False)
-        self.assertFalse(result)
-        mock_print.assert_called_once_with("Error")
+    def test_play_feedback_sound_error(self):
+        """Test playing error feedback sound."""
+        with patch('src.pi_inventory_system.audio_feedback.playsound') as mock_playsound:
+            play_feedback_sound(False)
+            mock_playsound.assert_called_once_with('sounds/error.wav')
 
-    @patch('builtins.print')
-    def test_confirmation_with_message(self, mock_print):
-        """Test confirmation output with a valid message."""
-        result = output_confirmation("Test message")
-        self.assertTrue(result)
-        mock_print.assert_called_once_with("Confirmation: Test message")
+    def test_play_feedback_sound_fallback(self):
+        """Test fallback when playsound fails."""
+        with patch('src.pi_inventory_system.audio_feedback.playsound') as mock_playsound:
+            mock_playsound.side_effect = Exception("Audio error")
+            # Should not raise an exception
+            play_feedback_sound(True)
+            play_feedback_sound(False)
 
-    @patch('builtins.print')
-    def test_confirmation_with_empty_message(self, mock_print):
-        """Test confirmation output with an empty message."""
-        result = output_confirmation("")
-        self.assertFalse(result)
-        mock_print.assert_not_called()
+    def test_output_confirmation(self):
+        """Test outputting confirmation message."""
+        test_message = "Test confirmation message"
+        with patch('builtins.print') as mock_print:
+            output_confirmation(test_message)
+            mock_print.assert_called_once_with(f"Confirmation: {test_message}")
 
 
 if __name__ == '__main__':

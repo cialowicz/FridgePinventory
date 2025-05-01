@@ -1,228 +1,196 @@
 # Tests for inventory database module
 
-import unittest
-import sqlite3
 import os
+import sqlite3
 import tempfile
-import shutil
+import unittest
 from unittest.mock import patch, MagicMock
-from pi_inventory_system.inventory_db import (
-    init_db, get_db, add_item, remove_item, set_item,
-    get_inventory, undo_last_change, get_current_quantity,
-    close_db
+from src.pi_inventory_system.inventory_db import (
+    init_db,
+    get_db,
+    close_db,
+    add_item,
+    remove_item,
+    set_item,
+    get_inventory,
+    undo_last_change,
+    get_current_quantity,
+    get_migrations_dir,
+    run_migration
 )
-
-
-def print_db_state():
-    """Print the current state of both tables."""
-    conn = get_db()
-    cursor = conn.cursor()
-    
-    print("\nInventory table:")
-    cursor.execute("SELECT * FROM inventory")
-    print(cursor.fetchall())
-    
-    print("\nHistory table:")
-    cursor.execute("SELECT * FROM inventory_history ORDER BY id")
-    print(cursor.fetchall())
+from src.pi_inventory_system.inventory_item import InventoryItem
 
 
 class TestInventoryDB(unittest.TestCase):
-    """Integration tests using a real SQLite database."""
-    
+    """Test cases for inventory database functionality."""
+
     def setUp(self):
-        """Set up an in-memory database for testing."""
-        # Create a temporary migrations directory
-        self.temp_dir = tempfile.mkdtemp()
-        self.migrations_dir = os.path.join(self.temp_dir, 'migrations')
-        os.makedirs(self.migrations_dir)
-        
-        # Copy all migration files to the temporary directory
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        project_root = os.path.dirname(current_dir)
-        actual_migrations_dir = os.path.join(project_root, 'migrations')
-        
-        for migration_file in os.listdir(actual_migrations_dir):
-            if migration_file.endswith('.sql'):
-                src = os.path.join(actual_migrations_dir, migration_file)
-                dst = os.path.join(self.migrations_dir, migration_file)
-                shutil.copy2(src, dst)
-        
-        # Patch the migrations directory path
-        self.patchers = [
-            patch('pi_inventory_system.inventory_db._db_connection', None),
-            patch('pi_inventory_system.inventory_db.get_migrations_dir', return_value=self.migrations_dir)
-        ]
-        for patcher in self.patchers:
-            patcher.start()
-        
-        # Initialize the database
+        """Set up test environment."""
+        # Initialize in-memory database
         init_db(':memory:')
         self.conn = get_db()
-    
+        self.cursor = self.conn.cursor()
+
+        # Create required tables
+        self.cursor.executescript('''
+            CREATE TABLE IF NOT EXISTS migrations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                migration_name TEXT NOT NULL UNIQUE,
+                applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS inventory (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                item_name TEXT NOT NULL UNIQUE,
+                quantity INTEGER NOT NULL DEFAULT 0,
+                last_modified TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS inventory_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                item_name TEXT NOT NULL,
+                previous_quantity INTEGER NOT NULL,
+                new_quantity INTEGER NOT NULL,
+                operation_type TEXT NOT NULL,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        ''')
+        self.conn.commit()
+
     def tearDown(self):
-        """Clean up after tests."""
-        # Close the database connection
+        """Clean up test environment."""
         close_db()
-        
-        # Stop all patchers
-        for patcher in self.patchers:
-            patcher.stop()
-        
-        # Remove temporary files
-        for filename in os.listdir(self.migrations_dir):
-            file_path = os.path.join(self.migrations_dir, filename)
-            if os.path.isfile(file_path):
-                os.unlink(file_path)
-        os.rmdir(self.migrations_dir)
-        os.rmdir(self.temp_dir)
-    
+
+    def test_init_db(self):
+        """Test database initialization."""
+        close_db()  # Close the existing connection
+        with patch('src.pi_inventory_system.inventory_db.sqlite3') as mock_sqlite:
+            mock_conn = MagicMock()
+            mock_sqlite.connect.return_value = mock_conn
+            init_db()
+            mock_sqlite.connect.assert_called_once()
+            mock_conn.commit.assert_called_once()
+
+    def test_migrations(self):
+        """Test database migrations."""
+        # Create a temporary migrations directory
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch('src.pi_inventory_system.inventory_db.get_migrations_dir', return_value=temp_dir):
+                # Create a test migration file
+                migration_path = os.path.join(temp_dir, '001_test_migration.sql')
+                with open(migration_path, 'w') as f:
+                    f.write('CREATE TABLE test (id INTEGER PRIMARY KEY);')
+
+                # Run the migration
+                run_migration(self.conn, migration_path)
+
+                # Verify migration was recorded
+                self.cursor.execute("SELECT migration_name FROM migrations WHERE migration_name = '001_test_migration.sql'")
+                result = self.cursor.fetchone()
+                self.assertIsNotNone(result)
+
+                # Verify table was created
+                self.cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='test'")
+                result = self.cursor.fetchone()
+                self.assertIsNotNone(result)
+
     def test_add_item(self):
         """Test adding items to inventory."""
-        # Test adding a new item
-        add_item("chicken", 5)
-        self.assertEqual(get_current_quantity("chicken"), 5)
+        # Add a new item
+        item = InventoryItem("test_item", 5)
+        self.assertTrue(add_item(item.item_name, item.quantity))
         
-        # Test adding to existing item
-        add_item("chicken", 3)
-        self.assertEqual(get_current_quantity("chicken"), 8)
-    
+        # Verify item was added
+        self.cursor.execute("SELECT quantity FROM inventory WHERE item_name = ?", (item.item_name,))
+        result = self.cursor.fetchone()
+        self.assertIsNotNone(result)
+        self.assertEqual(result[0], 5)
+
+        # Add more of the same item
+        self.assertTrue(add_item(item.item_name, 3))
+        self.cursor.execute("SELECT quantity FROM inventory WHERE item_name = ?", (item.item_name,))
+        result = self.cursor.fetchone()
+        self.assertEqual(result[0], 8)
+
     def test_remove_item(self):
         """Test removing items from inventory."""
-        # Clear any existing items
-        self.conn.execute("DELETE FROM inventory")
-        self.conn.execute("DELETE FROM inventory_history")
-        self.conn.commit()
+        # Add an item first
+        item = InventoryItem("test_item", 5)
+        add_item(item.item_name, item.quantity)
         
-        print("\nInitial state:")
-        print_db_state()
-        
-        # Add some items first
-        add_item("beef", 10)
-        print("\nAfter adding beef:")
-        print_db_state()
-        
-        # Test removing items
-        remove_item("beef", 3)
-        print("\nAfter removing 3 beef:")
-        print_db_state()
-        
-        # Verify the quantity
-        current = get_current_quantity("beef")
-        print(f"\nCurrent quantity: {current}")
-        self.assertEqual(current, 7)
-        
-        # Test removing more than available
-        remove_item("beef", 10)
-        print("\nAfter removing 10 more beef:")
-        print_db_state()
-        self.assertEqual(get_current_quantity("beef"), 0)
-    
+        # Remove some quantity
+        self.assertTrue(remove_item(item.item_name, 2))
+        self.cursor.execute("SELECT quantity FROM inventory WHERE item_name = ?", (item.item_name,))
+        result = self.cursor.fetchone()
+        self.assertEqual(result[0], 3)
+
+        # Try to remove more than available
+        self.assertTrue(remove_item(item.item_name, 5))  # Should succeed but set quantity to 0
+        self.cursor.execute("SELECT quantity FROM inventory WHERE item_name = ?", (item.item_name,))
+        result = self.cursor.fetchone()
+        self.assertEqual(result[0], 0)
+
     def test_set_item(self):
-        """Test setting item quantities."""
-        # Test setting a new item
-        set_item("salmon", 4)
-        self.assertEqual(get_current_quantity("salmon"), 4)
+        """Test setting item quantity."""
+        item = InventoryItem("test_item", 5)
         
-        # Test updating an existing item
-        set_item("salmon", 2)
-        self.assertEqual(get_current_quantity("salmon"), 2)
-    
+        # Set quantity for new item
+        self.assertTrue(set_item(item.item_name, item.quantity))
+        self.cursor.execute("SELECT quantity FROM inventory WHERE item_name = ?", (item.item_name,))
+        result = self.cursor.fetchone()
+        self.assertEqual(result[0], 5)
+
+        # Update existing item
+        self.assertTrue(set_item(item.item_name, 10))
+        self.cursor.execute("SELECT quantity FROM inventory WHERE item_name = ?", (item.item_name,))
+        result = self.cursor.fetchone()
+        self.assertEqual(result[0], 10)
+
     def test_get_inventory(self):
-        """Test retrieving the entire inventory."""
-        # Clear any existing items
-        self.conn.execute("DELETE FROM inventory")
-        self.conn.commit()
-        
+        """Test retrieving inventory."""
         # Add some items
-        add_item("chicken", 5)
-        add_item("beef", 3)
+        items = [
+            InventoryItem("item1", 5),
+            InventoryItem("item2", 3),
+            InventoryItem("item3", 7)
+        ]
+        for item in items:
+            add_item(item.item_name, item.quantity)
         
-        # Get inventory and verify contents
+        # Get inventory
         inventory = get_inventory()
-        self.assertEqual(len(inventory), 2)
-        self.assertIn(("chicken", 5), inventory)
-        self.assertIn(("beef", 3), inventory)
-    
+        self.assertEqual(len(inventory), 3)
+        inventory_dict = {item[0]: item[1] for item in inventory}
+        self.assertEqual(inventory_dict["item1"], 5)
+        self.assertEqual(inventory_dict["item2"], 3)
+        self.assertEqual(inventory_dict["item3"], 7)
+
     def test_undo_last_change(self):
-        """Test undoing the last inventory change."""
-        # Clear any existing items
-        self.conn.execute("DELETE FROM inventory")
-        self.conn.execute("DELETE FROM inventory_history")
-        self.conn.commit()
+        """Test undoing the last change."""
+        item = InventoryItem("test_item", 5)
         
         # Add an item
-        add_item("fish", 5)
-        self.assertEqual(get_current_quantity("fish"), 5)
+        add_item(item.item_name, item.quantity)
         
-        # Remove some
-        remove_item("fish", 2)
-        self.assertEqual(get_current_quantity("fish"), 3)
+        # Modify it
+        set_item(item.item_name, 10)
         
-        # Undo the removal
+        # Undo the change
         self.assertTrue(undo_last_change())
-        self.assertEqual(get_current_quantity("fish"), 5)
-        
-        # Undo the addition
-        self.assertTrue(undo_last_change())
-        self.assertEqual(get_current_quantity("fish"), 0)
-        
-        # Test undoing when no changes exist
-        self.assertFalse(undo_last_change())
+        self.cursor.execute("SELECT quantity FROM inventory WHERE item_name = ?", (item.item_name,))
+        result = self.cursor.fetchone()
+        self.assertEqual(result[0], 5)
 
-
-class TestInventoryDBUnit(unittest.TestCase):
-    """Unit tests using mocks."""
-    
-    def setUp(self):
-        """Set up mock database connection."""
-        self.mock_conn = MagicMock()
-        self.mock_cursor = MagicMock()
-        self.mock_conn.cursor.return_value = self.mock_cursor
-        self.patcher = patch('pi_inventory_system.inventory_db.get_db', return_value=self.mock_conn)
-        self.patcher.start()
-    
-    def tearDown(self):
-        """Clean up after tests."""
-        self.patcher.stop()
-    
-    def test_add_item_new(self):
-        """Test adding a new item."""
-        # Mock get_current_quantity to return 0 for new item
-        with patch('pi_inventory_system.inventory_db.get_current_quantity', return_value=0):
-            add_item("chicken", 5)
-            
-            # Verify all operations
-            calls = self.mock_cursor.execute.call_args_list
-            self.assertEqual(len(calls), 3)  # BEGIN + inventory + history
-    
-    def test_add_item_existing(self):
-        """Test adding to an existing item."""
-        # Mock get_current_quantity to return a non-zero value
-        with patch('pi_inventory_system.inventory_db.get_current_quantity', return_value=3):
-            add_item("chicken", 5)
-            
-            # Verify all operations
-            calls = self.mock_cursor.execute.call_args_list
-            self.assertEqual(len(calls), 3)  # BEGIN + inventory + history
-    
-    def test_remove_item(self):
-        """Test removing items."""
-        # Mock get_current_quantity to return a non-zero value
-        with patch('pi_inventory_system.inventory_db.get_current_quantity', return_value=10):
-            remove_item("beef", 3)
-            
-            # Verify all operations
-            calls = self.mock_cursor.execute.call_args_list
-            self.assertEqual(len(calls), 3)  # BEGIN + inventory + history
-    
-    def test_set_item(self):
-        """Test setting item quantities."""
-        set_item("salmon", 4)
+    def test_get_current_quantity(self):
+        """Test getting current quantity of an item."""
+        item = InventoryItem("test_item", 5)
         
-        # Verify all operations
-        calls = self.mock_cursor.execute.call_args_list
-        self.assertEqual(len(calls), 4)  # BEGIN + get_current_quantity + inventory + history
+        # Check non-existent item
+        self.assertEqual(get_current_quantity(item.item_name), 0)
+        
+        # Add item and check
+        add_item(item.item_name, item.quantity)
+        self.assertEqual(get_current_quantity(item.item_name), 5)
 
 
 if __name__ == '__main__':

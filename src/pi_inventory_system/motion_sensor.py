@@ -2,6 +2,7 @@
 
 import platform
 import logging
+import time
 from typing import Optional
 
 # GPIO pin for motion sensor

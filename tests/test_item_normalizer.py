@@ -1,21 +1,24 @@
 # Tests for item normalizer module
 
 import unittest
-from pi_inventory_system.item_normalizer import normalize_item_name, get_item_synonyms
+from src.pi_inventory_system.item_normalizer import normalize_item_name, get_item_synonyms
 
 class TestItemNormalizer(unittest.TestCase):
-    def test_ground_beef_normalization(self):
+    def test_basic_normalization(self):
+        """Test basic item name normalization."""
         self.assertEqual(normalize_item_name("ground beef"), "ground beef")
         self.assertEqual(normalize_item_name("beef"), "ground beef")
         self.assertEqual(normalize_item_name("ground meat"), "ground beef")
 
     def test_steak_normalization(self):
+        """Test steak variations."""
         self.assertEqual(normalize_item_name("steak"), "steak")
         self.assertEqual(normalize_item_name("steaks"), "steak")
         self.assertEqual(normalize_item_name("sirloin"), "steak")
         self.assertEqual(normalize_item_name("ribeye"), "steak")
 
     def test_chicken_normalization(self):
+        """Test chicken variations."""
         self.assertEqual(normalize_item_name("chicken breast"), "chicken breast")
         self.assertEqual(normalize_item_name("breast"), "chicken breast")
         self.assertEqual(normalize_item_name("chicken tenders"), "chicken tenders")
@@ -24,6 +27,7 @@ class TestItemNormalizer(unittest.TestCase):
         self.assertEqual(normalize_item_name("nuggets"), "chicken nuggets")
 
     def test_fish_normalization(self):
+        """Test fish variations."""
         self.assertEqual(normalize_item_name("white fish"), "white fish")
         self.assertEqual(normalize_item_name("whitefish"), "white fish")
         self.assertEqual(normalize_item_name("white fish fillet"), "white fish")

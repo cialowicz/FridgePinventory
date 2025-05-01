@@ -49,12 +49,6 @@ An inventory management system for a chest freezer, built using a Raspberry Pi 5
    - Connect the Inky wHAT display via SPI
    - Connect USB speaker and microphone
 
-5. Create the sounds directory and add audio files:
-   ```bash
-   mkdir sounds
-   # Add success.wav and error.wav for audio feedback
-   ```
-
 ## Running the Application
 
 ### On Raspberry Pi (with hardware)

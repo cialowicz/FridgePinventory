@@ -2,44 +2,38 @@
 
 import unittest
 from unittest.mock import patch, MagicMock
-from pi_inventory_system.voice_recognition import recognize_speech_from_mic
-import speech_recognition as sr
+from src.pi_inventory_system.voice_recognition import recognize_speech_from_mic
 
 
 class TestVoiceRecognition(unittest.TestCase):
+    """Test cases for voice recognition functionality."""
 
-    @patch('pi_inventory_system.voice_recognition.sr')
-    def test_successful_recognition(self, mock_sr):
-        # Setup mock recognizer
+    def test_successful_recognition(self):
+        """Test successful speech recognition."""
         mock_recognizer = MagicMock()
-        mock_sr.Recognizer.return_value = mock_recognizer
-        mock_recognizer.recognize_google.return_value = "test command"
+        mock_recognizer.recognize_google.return_value = "add chicken"
+        
+        with patch('src.pi_inventory_system.voice_recognition.sr.Recognizer', return_value=mock_recognizer), \
+             patch('src.pi_inventory_system.voice_recognition.sr.Microphone') as mock_mic:
+            result = recognize_speech_from_mic()
+            self.assertEqual(result, "add chicken")
 
-        # Call function
-        result = recognize_speech_from_mic()
-        self.assertEqual(result, "test command")
-
-    @patch('pi_inventory_system.voice_recognition.sr')
-    def test_unknown_audio(self, mock_sr):
-        # Setup mock recognizer
+    def test_recognition_error(self):
+        """Test handling recognition error."""
         mock_recognizer = MagicMock()
-        mock_sr.Recognizer.return_value = mock_recognizer
-        mock_recognizer.recognize_google.side_effect = sr.UnknownValueError()
+        mock_recognizer.recognize_google.side_effect = Exception("Recognition error")
+        
+        with patch('src.pi_inventory_system.voice_recognition.sr.Recognizer', return_value=mock_recognizer), \
+             patch('src.pi_inventory_system.voice_recognition.sr.Microphone') as mock_mic:
+            result = recognize_speech_from_mic()
+            self.assertIsNone(result)
 
-        # Call function
-        result = recognize_speech_from_mic()
-        self.assertIsNone(result)
-
-    @patch('pi_inventory_system.voice_recognition.sr')
-    def test_request_error(self, mock_sr):
-        # Setup mock recognizer
-        mock_recognizer = MagicMock()
-        mock_sr.Recognizer.return_value = mock_recognizer
-        mock_recognizer.recognize_google.side_effect = sr.RequestError()
-
-        # Call function
-        result = recognize_speech_from_mic()
-        self.assertIsNone(result)
+    def test_microphone_error(self):
+        """Test handling microphone error."""
+        with patch('src.pi_inventory_system.voice_recognition.sr.Recognizer') as mock_recognizer, \
+             patch('src.pi_inventory_system.voice_recognition.sr.Microphone', side_effect=Exception("Mic error")):
+            result = recognize_speech_from_mic()
+            self.assertIsNone(result)
 
 
 if __name__ == '__main__':
