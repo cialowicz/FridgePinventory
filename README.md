@@ -103,9 +103,54 @@ The system recognizes various forms of these items:
 - Steak (various cuts)
 
 ## Development
-- Tests can be run using: `python -m pytest`
+### Running Tests
+The project uses pytest for testing. To run the tests:
+
+```bash
+# Run all tests
+python -m pytest
+
+# Run tests with verbose output
+python -m pytest -v
+
+# Run tests in a specific file
+python -m pytest tests/test_inventory_controller.py
+
+# Run tests matching a specific pattern
+python -m pytest -k "test_add"
+
+# Run tests with coverage report
+python -m pytest --cov=pi_inventory_system
+
+# Run tests with coverage report and HTML output
+python -m pytest --cov=pi_inventory_system --cov-report=html
+```
+
+The test suite includes:
+- Unit tests for all major components
+- Integration tests for database operations
+- Hardware simulation tests for display and motion sensor
+- Voice recognition tests with mocked audio input
+
+Some tests are marked with `@pytest.mark.skip` if they require specific hardware or are known to be flaky. These can be run with:
+```bash
+python -m pytest -m "not skip"
+```
+
+### Adding New Tests
+- Tests are located in the `tests` directory
+- Each module has a corresponding test file (e.g., `test_inventory_controller.py`)
+- Common test fixtures are defined in `conftest.py`
+- Use pytest fixtures for shared test setup
+- Mock hardware dependencies using `unittest.mock`
+
+### Adding New Items
 - New items can be added in `src/pi_inventory_system/item_normalizer.py`
+
+## Audio Feedback
 - Audio feedback sounds can be customized by replacing files in the `sounds` directory
+
+## Database Migrations
 - Database migrations are stored in the `migrations` directory
   - Each migration is a SQL file named with a number prefix (e.g., `000_migrations_tracking.sql`)
   - Migrations run automatically on startup in numerical order

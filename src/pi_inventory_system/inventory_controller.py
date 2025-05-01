@@ -6,7 +6,9 @@ from .inventory_db import (
     add_item,
     remove_item,
     set_item,
-    get_inventory
+    get_inventory,
+    get_pending_migrations,
+    get_db
 )
 from .motion_sensor import detect_motion
 from .voice_recognition import recognize_speech_from_mic
@@ -25,8 +27,23 @@ class InventoryController:
     
     def _initialize_system(self) -> None:
         """Initialize the database and display."""
+        # Initialize database and check for pending migrations
         init_db()
-        initialize_display()
+        conn = get_db()
+        pending_migrations = get_pending_migrations(conn)
+        if pending_migrations:
+            logging.info(f"Found {len(pending_migrations)} pending migrations")
+            for migration_file in pending_migrations:
+                logging.info(f"Running migration: {migration_file}")
+        else:
+            logging.info("No pending migrations found")
+        
+        # Initialize display
+        display = initialize_display()
+        if display:
+            logging.info("Display initialized successfully")
+        else:
+            logging.warning("Display initialization failed or not supported")
     
     def process_command(self, command: str) -> Tuple[bool, Optional[str]]:
         """Process a voice command and return success status and feedback message.

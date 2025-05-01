@@ -13,7 +13,7 @@ is_raspberry_pi = _is_raspberry_pi()
 
 if is_raspberry_pi:
     try:
-        from inky.inky_uc8159 import InkyWHAT
+        from inky.inky_uc8159 import InkyWHAT  # type: ignore
         from PIL import Image, ImageDraw, ImageFont
     except ImportError:
         is_raspberry_pi = False

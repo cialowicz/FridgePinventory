@@ -3,6 +3,7 @@
 import sqlite3
 import os
 import glob
+import logging
 from typing import List, Optional
 from datetime import datetime
 from pi_inventory_system.inventory_item import InventoryItem
@@ -19,58 +20,64 @@ def get_migrations_dir() -> str:
     return os.path.join(project_root, 'migrations')
 
 
-def get_pending_migrations(conn) -> List[str]:
-    """Get a list of migration files that haven't been run yet."""
-    cursor = conn.cursor()
+def get_pending_migrations(conn: sqlite3.Connection) -> List[str]:
+    """Get a list of pending migrations that haven't been run yet.
     
-    # Create migrations table if it doesn't exist
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS migrations (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            migration_name TEXT NOT NULL UNIQUE,
-            applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    conn.commit()
-    
+    Args:
+        conn: The database connection
+        
+    Returns:
+        List of migration file paths that need to be run
+    """
     # Get all migration files
     migrations_dir = get_migrations_dir()
     migration_files = sorted(glob.glob(os.path.join(migrations_dir, '*.sql')))
     
-    # Get already applied migrations
+    # Get migrations that have already been run
+    cursor = conn.cursor()
     cursor.execute("SELECT migration_name FROM migrations")
     applied_migrations = {row[0] for row in cursor.fetchall()}
     
-    # Return only pending migrations
-    pending = []
+    # Filter out migrations that have already been run
+    pending_migrations = []
     for migration_file in migration_files:
         migration_name = os.path.basename(migration_file)
         if migration_name not in applied_migrations:
-            pending.append(migration_file)
+            pending_migrations.append(migration_file)
     
-    return pending
+    return pending_migrations
 
 
-def run_migration(conn, migration_file: str) -> None:
-    """Run a single migration file."""
-    cursor = conn.cursor()
+def run_migration(conn: sqlite3.Connection, migration_file: str) -> None:
+    """Run a single migration file.
+    
+    Args:
+        conn: The database connection
+        migration_file: Path to the migration file
+    """
     migration_name = os.path.basename(migration_file)
     
     try:
-        # Read and execute the migration file
+        # Read and execute the migration
         with open(migration_file, 'r') as f:
             sql = f.read()
-            cursor.executescript(sql)
         
-        # Record the migration as applied
+        cursor = conn.cursor()
+        cursor.executescript(sql)
+        
+        # Record that the migration was run
         cursor.execute(
             "INSERT INTO migrations (migration_name) VALUES (?)",
             (migration_name,)
         )
+        
         conn.commit()
+        logging.info(f"Successfully ran migration: {migration_name}")
+        
     except Exception as e:
         conn.rollback()
-        raise e
+        logging.error(f"Error running migration {migration_name}: {e}")
+        raise
 
 
 def init_db(db_path: str = ':memory:') -> None:
@@ -84,10 +91,25 @@ def init_db(db_path: str = ':memory:') -> None:
         _db_connection = sqlite3.connect(db_path)
         _db_connection.row_factory = sqlite3.Row
         
+        # Create migrations table if it doesn't exist
+        cursor = _db_connection.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS migrations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                migration_name TEXT NOT NULL UNIQUE,
+                applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        _db_connection.commit()
+        
         # Run all pending migrations
         pending_migrations = get_pending_migrations(_db_connection)
-        for migration_file in pending_migrations:
-            run_migration(_db_connection, migration_file)
+        if pending_migrations:
+            logging.info(f"Found {len(pending_migrations)} pending migrations")
+            for migration_file in pending_migrations:
+                run_migration(_db_connection, migration_file)
+        else:
+            logging.info("No pending migrations found")
             
     except Exception as e:
         if _db_connection:

@@ -1,15 +1,15 @@
 import pytest
 import time
 from unittest.mock import Mock, patch
-from src.pi_inventory_system.inventory_controller import InventoryController
-from src.pi_inventory_system.inventory_item import InventoryItem
+from pi_inventory_system.inventory_controller import InventoryController
+from pi_inventory_system.inventory_item import InventoryItem
 
 
 @pytest.fixture
 def controller():
     """Create a controller instance with mocked dependencies."""
-    with patch('src.pi_inventory_system.inventory_controller.init_db'), \
-         patch('src.pi_inventory_system.inventory_controller.initialize_display'):
+    with patch('pi_inventory_system.inventory_controller.init_db'), \
+         patch('pi_inventory_system.inventory_controller.initialize_display'):
         return InventoryController()
 
 
@@ -22,7 +22,7 @@ def test_process_command_empty_command(controller):
 
 def test_process_command_invalid_command(controller):
     """Test processing an invalid command."""
-    with patch('src.pi_inventory_system.inventory_controller.interpret_command', 
+    with patch('pi_inventory_system.inventory_controller.interpret_command', 
               return_value=(None, None)):
         success, feedback = controller.process_command("invalid command")
         assert not success
@@ -32,9 +32,9 @@ def test_process_command_invalid_command(controller):
 def test_process_command_failed_execution(controller):
     """Test processing a command that fails to execute."""
     item = InventoryItem(item_name="chicken", quantity=1)
-    with patch('src.pi_inventory_system.inventory_controller.interpret_command',
+    with patch('pi_inventory_system.inventory_controller.interpret_command',
               return_value=("add", item)), \
-         patch('src.pi_inventory_system.inventory_controller.execute_command',
+         patch('pi_inventory_system.inventory_controller.execute_command',
               return_value=False):
         success, feedback = controller.process_command("add chicken")
         assert not success
@@ -44,13 +44,13 @@ def test_process_command_failed_execution(controller):
 def test_process_command_successful_add(controller):
     """Test processing a successful add command."""
     item = InventoryItem(item_name="chicken", quantity=1)
-    with patch('src.pi_inventory_system.inventory_controller.interpret_command',
+    with patch('pi_inventory_system.inventory_controller.interpret_command',
               return_value=("add", item)), \
-         patch('src.pi_inventory_system.inventory_controller.execute_command',
+         patch('pi_inventory_system.inventory_controller.execute_command',
               return_value=True), \
-         patch('src.pi_inventory_system.inventory_controller.get_inventory',
+         patch('pi_inventory_system.inventory_controller.get_inventory',
               return_value=[("chicken", 1)]), \
-         patch('src.pi_inventory_system.inventory_controller.display_inventory'):
+         patch('pi_inventory_system.inventory_controller.display_inventory'):
         success, feedback = controller.process_command("add chicken")
         assert success
         assert feedback == "chicken now has 1 in inventory."
@@ -59,13 +59,13 @@ def test_process_command_successful_add(controller):
 def test_process_command_successful_remove(controller):
     """Test processing a successful remove command."""
     item = InventoryItem(item_name="chicken", quantity=1)
-    with patch('src.pi_inventory_system.inventory_controller.interpret_command',
+    with patch('pi_inventory_system.inventory_controller.interpret_command',
               return_value=("remove", item)), \
-         patch('src.pi_inventory_system.inventory_controller.execute_command',
+         patch('pi_inventory_system.inventory_controller.execute_command',
               return_value=True), \
-         patch('src.pi_inventory_system.inventory_controller.get_inventory',
+         patch('pi_inventory_system.inventory_controller.get_inventory',
               return_value=[]), \
-         patch('src.pi_inventory_system.inventory_controller.display_inventory'):
+         patch('pi_inventory_system.inventory_controller.display_inventory'):
         success, feedback = controller.process_command("remove chicken")
         assert success
         assert feedback == "chicken has been removed from inventory."
@@ -73,13 +73,13 @@ def test_process_command_successful_remove(controller):
 
 def test_process_command_successful_undo(controller):
     """Test processing a successful undo command."""
-    with patch('src.pi_inventory_system.inventory_controller.interpret_command',
+    with patch('pi_inventory_system.inventory_controller.interpret_command',
               return_value=("undo", "chicken")), \
-         patch('src.pi_inventory_system.inventory_controller.execute_command',
+         patch('pi_inventory_system.inventory_controller.execute_command',
               return_value=True), \
-         patch('src.pi_inventory_system.inventory_controller.get_inventory',
+         patch('pi_inventory_system.inventory_controller.get_inventory',
               return_value=[("chicken", 2)]), \
-         patch('src.pi_inventory_system.inventory_controller.display_inventory'):
+         patch('pi_inventory_system.inventory_controller.display_inventory'):
         success, feedback = controller.process_command("undo")
         assert success
         assert feedback == "Last change has been undone. chicken now has 2 in inventory."
@@ -88,13 +88,13 @@ def test_process_command_successful_undo(controller):
 def test_process_command_successful_set(controller):
     """Test processing a successful set command."""
     item = InventoryItem(item_name="chicken", quantity=5)
-    with patch('src.pi_inventory_system.inventory_controller.interpret_command',
+    with patch('pi_inventory_system.inventory_controller.interpret_command',
               return_value=("set", item)), \
-         patch('src.pi_inventory_system.inventory_controller.execute_command',
+         patch('pi_inventory_system.inventory_controller.execute_command',
               return_value=True), \
-         patch('src.pi_inventory_system.inventory_controller.get_inventory',
+         patch('pi_inventory_system.inventory_controller.get_inventory',
               return_value=[("chicken", 5)]), \
-         patch('src.pi_inventory_system.inventory_controller.display_inventory'):
+         patch('pi_inventory_system.inventory_controller.display_inventory'):
         success, feedback = controller.process_command("set chicken to 5")
         assert success
         assert feedback == "chicken now has 5 in inventory."
