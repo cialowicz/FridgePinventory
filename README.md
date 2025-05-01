@@ -108,16 +108,7 @@ The project uses pytest for testing. To run the tests:
 
 ```bash
 # Run all tests
-python -m pytest
-
-# Run tests with verbose output
 python -m pytest -v
-
-# Run tests in a specific file
-python -m pytest tests/test_inventory_controller.py
-
-# Run tests matching a specific pattern
-python -m pytest -k "test_add"
 
 # Run tests with coverage report
 python -m pytest --cov=pi_inventory_system
