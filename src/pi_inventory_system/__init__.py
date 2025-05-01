@@ -37,6 +37,10 @@ from .item_normalizer import (
     get_item_synonyms
 )
 
+from .inventory_item import (
+    InventoryItem
+)
+
 from .command_processor import (
     interpret_command,
     execute_command
@@ -74,6 +78,9 @@ __all__ = [
     # Item normalization functions
     'normalize_item_name',
     'get_item_synonyms',
+    
+    # Data classes
+    'InventoryItem',
     
     # Command processing functions
     'interpret_command',

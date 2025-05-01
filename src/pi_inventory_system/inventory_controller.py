@@ -1,4 +1,5 @@
 import logging
+import time
 from typing import List, Tuple, Optional, Dict, Any
 from .inventory_db import (
     init_db,
@@ -12,6 +13,7 @@ from .voice_recognition import recognize_speech_from_mic
 from .command_processor import interpret_command, execute_command
 from .display_manager import initialize_display, display_inventory
 from .audio_feedback import play_feedback_sound, output_confirmation
+from .inventory_item import InventoryItem
 
 
 class InventoryController:
@@ -38,11 +40,11 @@ class InventoryController:
         if not command:
             return False, "Could not understand audio. Please try again."
             
-        command_type, details = interpret_command(command)
+        command_type, item = interpret_command(command)
         if not command_type:
             return False, "Command not recognized. Please try again with a valid command."
             
-        success = execute_command(command_type, details)
+        success = execute_command(command_type, item)
         if not success:
             return False, "Command failed to execute. Please try again."
             
@@ -50,19 +52,19 @@ class InventoryController:
         inventory = get_inventory()
         
         # Generate appropriate feedback message
-        feedback = self._generate_feedback(command_type, details, inventory)
+        feedback = self._generate_feedback(command_type, item, inventory)
         
         # Update display
         display_inventory(inventory)
         
         return True, feedback
     
-    def _generate_feedback(self, command_type: str, details: Any, inventory: List[Tuple[str, int]]) -> str:
+    def _generate_feedback(self, command_type: str, item: Optional[InventoryItem], inventory: List[Tuple[str, int]]) -> str:
         """Generate feedback message based on command type and current inventory.
         
         Args:
             command_type: Type of command executed
-            details: Command details
+            item: The inventory item being modified
             inventory: Current inventory state
             
         Returns:
@@ -71,9 +73,9 @@ class InventoryController:
         if command_type == "undo":
             last_item = None
             last_quantity = 0
-            for item, qty in inventory:
-                if item == details:  # details contains the item name for undo
-                    last_item = item
+            for inv_item_name, qty in inventory:
+                if inv_item_name == item:  # item contains the item name for undo
+                    last_item = inv_item_name
                     last_quantity = qty
                     break
             
@@ -83,22 +85,16 @@ class InventoryController:
                 return f"Last change has been undone. {last_item} now has {last_quantity} in inventory."
             return "Last change has been undone."
         
-        # For other commands, get item name and quantity
-        if command_type == "set":
-            item_name, quantity = details
-        else:
-            quantity, item_name = details
-        
-        # Find the item in inventory
+        # For other commands, get current quantity from inventory
         current_quantity = 0
-        for item, qty in inventory:
-            if item == item_name:
+        for inv_item_name, qty in inventory:
+            if inv_item_name == item.item_name:
                 current_quantity = qty
                 break
         
         if current_quantity == 0:
-            return f"{item_name} has been removed from inventory."
-        return f"{item_name} now has {current_quantity} in inventory."
+            return f"{item.item_name} has been removed from inventory."
+        return f"{item.item_name} now has {current_quantity} in inventory."
     
     def run_loop(self) -> None:
         """Run the main control loop."""

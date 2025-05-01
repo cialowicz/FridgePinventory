@@ -5,20 +5,21 @@ import spacy
 import logging
 from typing import Tuple, Optional, Dict, List
 from word2number import w2n
-from pi_inventory_system import (
+from .inventory_db import (
     add_item,
     remove_item,
     set_item,
     get_inventory,
-    undo_last_change,
-    normalize_item_name
+    undo_last_change
 )
+from .item_normalizer import normalize_item_name
+from .inventory_item import InventoryItem
 
 # Load the English NLP model
 nlp = spacy.load("en_core_web_sm")
 
 # Command history for reference and undo
-_command_history: List[Tuple[str, Tuple[int, str]]] = []
+_command_history: List[Tuple[str, InventoryItem]] = []
 
 # Special quantity words that aren't handled by word2number
 SPECIAL_QUANTITIES = {
@@ -44,11 +45,10 @@ def parse_quantity(text: str) -> Optional[int]:
         except ValueError:
             return None
 
-def interpret_command(command_text: str) -> Tuple[Optional[str], Optional[Tuple[int, str]]]:
+def interpret_command(command_text: str) -> Tuple[Optional[str], Optional[InventoryItem]]:
     """
     Interpret a command from text input.
-    Returns a tuple of (command_type, (quantity, item_name)) for add/remove commands,
-    (command_type, (item_name, quantity)) for set commands,
+    Returns a tuple of (command_type, InventoryItem) for add/remove/set commands,
     or (None, None) if not recognized.
     """
     if not command_text:
@@ -115,48 +115,44 @@ def interpret_command(command_text: str) -> Tuple[Optional[str], Optional[Tuple[
     if quantity is None:
         quantity = 1
     
-    # Normalize the item name
+    # Normalize the item name and create InventoryItem
     if item_name:
         item_name = normalize_item_name(item_name)
-        if command_type == "set":
-            return command_type, (item_name, quantity)
-        else:
-            return command_type, (quantity, item_name)
+        return command_type, InventoryItem(item_name=item_name, quantity=quantity)
     
     return None, None
 
-def execute_command(command_type: str, details: Optional[Tuple[int, str]]) -> bool:
+def execute_command(command_type: str, item: Optional[InventoryItem]) -> bool:
     """
-    Execute a command based on its type and details.
+    Execute a command based on its type and item.
     Returns True if successful, False otherwise.
     """
     if command_type == "undo":
         return undo_last_change()
         
-    if not command_type or not details:
+    if not command_type or not item:
         return False
         
     try:
         # Execute the command
         if command_type == "add":
-            quantity, item_name = details
-            add_item(item_name, quantity)
+            add_item(item.item_name, item.quantity)
         elif command_type == "remove":
-            quantity, item_name = details
-            remove_item(item_name, quantity)
+            remove_item(item.item_name, item.quantity)
         elif command_type == "set":
-            item_name, quantity = details
-            set_item(item_name, quantity)
+            set_item(item.item_name, item.quantity)
         else:
             return False
             
+        # Add to command history
+        _command_history.append((command_type, item))
         return True
         
     except Exception as e:
         logging.error(f"Error executing command: {e}")
         return False
 
-def get_command_history() -> List[Tuple[str, Tuple[int, str]]]:
+def get_command_history() -> List[Tuple[str, InventoryItem]]:
     """Get the command history."""
     return _command_history.copy()
 

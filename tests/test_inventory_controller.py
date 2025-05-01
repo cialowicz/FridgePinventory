@@ -2,6 +2,7 @@ import pytest
 import time
 from unittest.mock import Mock, patch
 from src.pi_inventory_system.inventory_controller import InventoryController
+from src.pi_inventory_system.inventory_item import InventoryItem
 
 
 @pytest.fixture
@@ -30,8 +31,9 @@ def test_process_command_invalid_command(controller):
 
 def test_process_command_failed_execution(controller):
     """Test processing a command that fails to execute."""
+    item = InventoryItem(item_name="chicken", quantity=1)
     with patch('src.pi_inventory_system.inventory_controller.interpret_command',
-              return_value=("add", (1, "chicken"))), \
+              return_value=("add", item)), \
          patch('src.pi_inventory_system.inventory_controller.execute_command',
               return_value=False):
         success, feedback = controller.process_command("add chicken")
@@ -41,8 +43,9 @@ def test_process_command_failed_execution(controller):
 
 def test_process_command_successful_add(controller):
     """Test processing a successful add command."""
+    item = InventoryItem(item_name="chicken", quantity=1)
     with patch('src.pi_inventory_system.inventory_controller.interpret_command',
-              return_value=("add", (1, "chicken"))), \
+              return_value=("add", item)), \
          patch('src.pi_inventory_system.inventory_controller.execute_command',
               return_value=True), \
          patch('src.pi_inventory_system.inventory_controller.get_inventory',
@@ -55,8 +58,9 @@ def test_process_command_successful_add(controller):
 
 def test_process_command_successful_remove(controller):
     """Test processing a successful remove command."""
+    item = InventoryItem(item_name="chicken", quantity=1)
     with patch('src.pi_inventory_system.inventory_controller.interpret_command',
-              return_value=("remove", (1, "chicken"))), \
+              return_value=("remove", item)), \
          patch('src.pi_inventory_system.inventory_controller.execute_command',
               return_value=True), \
          patch('src.pi_inventory_system.inventory_controller.get_inventory',
@@ -83,8 +87,9 @@ def test_process_command_successful_undo(controller):
 
 def test_process_command_successful_set(controller):
     """Test processing a successful set command."""
+    item = InventoryItem(item_name="chicken", quantity=5)
     with patch('src.pi_inventory_system.inventory_controller.interpret_command',
-              return_value=("set", ("chicken", 5))), \
+              return_value=("set", item)), \
          patch('src.pi_inventory_system.inventory_controller.execute_command',
               return_value=True), \
          patch('src.pi_inventory_system.inventory_controller.get_inventory',
