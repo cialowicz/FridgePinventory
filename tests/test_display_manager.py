@@ -11,7 +11,8 @@ from pi_inventory_system.display_manager import (
     ImageDraw,
     ImageFont,
     _is_raspberry_pi,
-    get_inventory
+    get_inventory,
+    create_lozenge
 )
 
 @pytest.fixture
@@ -82,3 +83,27 @@ def test_initialize_display_no_raspberry_pi(mock_raspberry_pi):
     mock_raspberry_pi.return_value = False
     display = initialize_display()
     assert display is None
+
+def test_lozenge_border_color(mock_raspberry_pi):
+    """Test lozenge border color changes based on quantity."""
+    # Mock draw object
+    mock_draw = MagicMock()
+    mock_font = MagicMock()
+    
+    # Test with quantity > 2 (should use black border)
+    create_lozenge(mock_draw, 0, 0, 100, 50, "Test Item", 3, mock_font)
+    mock_draw.rectangle.assert_called_with([(0, 0), (100, 50)], fill='white', outline='black')
+    
+    # Reset mock for next test
+    mock_draw.reset_mock()
+    
+    # Test with quantity = 2 (should use yellow border)
+    create_lozenge(mock_draw, 0, 0, 100, 50, "Test Item", 2, mock_font)
+    mock_draw.rectangle.assert_called_with([(0, 0), (100, 50)], fill='white', outline='yellow')
+    
+    # Reset mock for next test
+    mock_draw.reset_mock()
+    
+    # Test with quantity < 2 (should use yellow border)
+    create_lozenge(mock_draw, 0, 0, 100, 50, "Test Item", 1, mock_font)
+    mock_draw.rectangle.assert_called_with([(0, 0), (100, 50)], fill='white', outline='yellow')

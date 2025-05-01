@@ -72,8 +72,11 @@ def initialize_display():
 
 def create_lozenge(draw, x, y, width, height, item_name, quantity, font):
     """Create a lozenge shape with item name and quantity."""
+    # Determine border color based on quantity
+    border_color = 'yellow' if quantity <= 2 else 'black'
+    
     # Draw the lozenge shape
-    draw.rectangle([(x, y), (x + width, y + height)], fill='white', outline='black')
+    draw.rectangle([(x, y), (x + width, y + height)], fill='white', outline=border_color)
     
     # Add item name and quantity
     text = f"{item_name}: {quantity}"
