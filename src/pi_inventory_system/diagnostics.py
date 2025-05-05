@@ -5,14 +5,18 @@ import logging
 from typing import Tuple
 from pi_inventory_system.display_manager import initialize_display, display_text, is_display_supported
 from pi_inventory_system.motion_sensor import detect_motion, is_motion_sensor_supported
+from pi_inventory_system.audio_feedback import play_feedback_sound
+from pi_inventory_system.voice_recognition import recognize_speech_from_mic
+import pyttsx3
 
-def run_startup_diagnostics() -> Tuple[bool, bool]:
+def run_startup_diagnostics() -> Tuple[bool, bool, bool]:
     """
-    Run startup diagnostics and return status of display and motion sensor.
-    Returns: (display_ok, motion_sensor_ok)
+    Run startup diagnostics and return status of display, motion sensor, and audio.
+    Returns: (display_ok, motion_sensor_ok, audio_ok)
     """
     display_ok = False
     motion_sensor_ok = False
+    audio_ok = False
     
     # Check display
     if is_display_supported():
@@ -46,4 +50,40 @@ def run_startup_diagnostics() -> Tuple[bool, bool]:
     else:
         logging.warning("Motion sensor not supported on this platform")
     
-    return display_ok, motion_sensor_ok 
+    # Check audio
+    try:
+        # Play success sound
+        if play_feedback_sound("success"):
+            logging.info("Success sound played successfully")
+            
+            # Initialize text-to-speech
+            engine = pyttsx3.init()
+            engine.say("Fridge Pinventory is starting up. Please say 'test' to confirm microphone is working.")
+            engine.runAndWait()
+            
+            # Wait for microphone input
+            logging.info("Waiting for microphone test...")
+            command = recognize_speech_from_mic()
+            if command and "test" in command.lower():
+                audio_ok = True
+                logging.info("Microphone test successful")
+                play_feedback_sound("success")
+            else:
+                logging.error("Microphone test failed")
+                play_feedback_sound("error")
+        else:
+            logging.error("Failed to play success sound")
+            play_feedback_sound("error")
+    except Exception as e:
+        logging.error(f"Audio diagnostics error: {e}")
+        play_feedback_sound("error")
+    
+    # Final status display
+    if display_ok:
+        status_text = "Diagnostics complete:\n"
+        status_text += f"Display: {'OK' if display_ok else 'FAIL'}\n"
+        status_text += f"Motion: {'OK' if motion_sensor_ok else 'FAIL'}\n"
+        status_text += f"Audio: {'OK' if audio_ok else 'FAIL'}"
+        display_text(display, status_text)
+    
+    return display_ok, motion_sensor_ok, audio_ok 
