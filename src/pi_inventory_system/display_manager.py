@@ -3,6 +3,7 @@
 import platform
 from math import ceil
 from pi_inventory_system.inventory_db import get_inventory
+import logging
 
 def _is_raspberry_pi():
     """Check if we're running on a Raspberry Pi."""
@@ -134,3 +135,39 @@ def display_inventory(display):
     
     except Exception:
         return None
+
+def display_text(display, text, font_size=16):
+    """Display text on the InkyWHAT display."""
+    if not display:
+        return False
+    
+    try:
+        # Create a new image
+        image = Image.new("P", (display.WIDTH, display.HEIGHT))
+        draw = ImageDraw.Draw(image)
+        
+        # Load font
+        try:
+            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
+        except IOError:
+            font = ImageFont.load_default()
+        
+        # Calculate text position
+        text_bbox = draw.textbbox((0, 0), text, font=font)
+        text_width = text_bbox[2] - text_bbox[0]
+        text_height = text_bbox[3] - text_bbox[1]
+        
+        text_x = (display.WIDTH - text_width) // 2
+        text_y = (display.HEIGHT - text_height) // 2
+        
+        # Draw text
+        draw.text((text_x, text_y), text, fill='black', font=font)
+        
+        # Update display
+        display.set_image(image)
+        display.show()
+        return True
+    
+    except Exception as e:
+        logging.error(f"Error displaying text: {e}")
+        return False
