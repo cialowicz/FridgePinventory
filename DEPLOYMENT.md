@@ -16,16 +16,16 @@ This guide will help you set up FridgePinventory on your Raspberry Pi.
 ## Hardware Setup
 
 1. Connect the eInk display to the Raspberry Pi's GPIO pins
-2. Connect the motion sensor to the GPIO pins
-3. Connect the microphone to the audio input
-4. Connect the speaker to the audio output
+2. Connect the motion sensor to the GPIO pins: 05 (5v), 06 (gnd), 07 (GPIO04/GPIO_GCLK)
+3. Connect the USB microphone
+4. Connect the USB speaker
 
 ## Software Setup
 
 1. Clone the repository:
    ```bash
    cd /home/pi
-   git clone https://github.com/yourusername/FridgePinventory.git
+   git clone https://github.com/cialowicz/FridgePinventory.git
    cd FridgePinventory
    ```
 
