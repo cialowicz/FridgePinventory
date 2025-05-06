@@ -22,7 +22,14 @@ This guide will help you set up FridgePinventory on your Raspberry Pi.
 
 ## Software Setup
 
-1. Clone the repository:
+1. **Install System Dependencies:**
+   Before running the deployment script, ensure necessary system libraries are installed. `PyAudio` requires the PortAudio library.
+   ```bash
+   sudo apt-get update && sudo apt-get install portaudio19-dev
+   ```
+   *Note: The `deploy.sh` script handles this automatically.*
+
+2. Clone the repository:
    ```bash
    cd /home/pi
    git clone https://github.com/cialowicz/FridgePinventory.git

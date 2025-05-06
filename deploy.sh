@@ -10,8 +10,12 @@ echo "Creating virtual environment..."
 python3 -m venv /home/pi/fridgepinventory_venv
 source /home/pi/fridgepinventory_venv/bin/activate
 
-# Install dependencies
-echo "Installing dependencies..."
+# Install system dependencies (like PortAudio)
+echo "Installing system dependencies..."
+sudo apt-get update && sudo apt-get install -y portaudio19-dev
+
+# Install Python dependencies
+echo "Installing Python dependencies..."
 pip install --upgrade pip
 pip install -e .
 
