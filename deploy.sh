@@ -7,8 +7,8 @@ echo "Setting up FridgePinventory on Raspberry Pi..."
 
 # Create virtual environment
 echo "Creating virtual environment..."
-python3 -m venv /home/pi/fridgepinventory_venv
-source /home/pi/fridgepinventory_venv/bin/activate
+python3 -m venv /home/admin/fridgepinventory_venv
+source /home/admin/fridgepinventory_venv/bin/activate
 
 # Install system dependencies (like PortAudio)
 echo "Installing system dependencies..."
@@ -28,10 +28,10 @@ After=network.target
 
 [Service]
 Type=simple
-User=pi
-WorkingDirectory=/home/pi/FridgePinventory
-Environment="PYTHONPATH=/home/pi/FridgePinventory/src"
-ExecStart=/home/pi/fridgepinventory_venv/bin/python -m pi_inventory_system.main
+User=admin
+WorkingDirectory=/home/admin/FridgePinventory
+Environment="PYTHONPATH=/home/admin/FridgePinventory/src"
+ExecStart=/home/admin/fridgepinventory_venv/bin/python -m pi_inventory_system.main
 Restart=always
 RestartSec=10
 

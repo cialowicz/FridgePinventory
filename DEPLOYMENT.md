@@ -31,7 +31,7 @@ This guide will help you set up FridgePinventory on your Raspberry Pi.
 
 2. Clone the repository:
    ```bash
-   cd /home/pi
+   cd /home/admin
    git clone https://github.com/cialowicz/FridgePinventory.git
    cd FridgePinventory
    ```
@@ -90,7 +90,7 @@ This guide will help you set up FridgePinventory on your Raspberry Pi.
 
 1. Pull the latest changes:
    ```bash
-   cd /home/pi/FridgePinventory
+   cd /home/admin/FridgePinventory
    git pull
    ```
 
@@ -119,10 +119,10 @@ This guide will help you set up FridgePinventory on your Raspberry Pi.
 
 3. Remove the virtual environment:
    ```bash
-   rm -rf /home/pi/fridgepinventory_venv
+   rm -rf /home/admin/fridgepinventory_venv
    ```
 
 4. Remove the project directory:
    ```bash
-   rm -rf /home/pi/FridgePinventory
+   rm -rf /home/admin/FridgePinventory
    ``` 
