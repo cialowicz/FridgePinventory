@@ -8,8 +8,8 @@ This guide will help you set up FridgePinventory on your Raspberry Pi.
 - Raspberry Pi OS (tested on Raspberry Pi OS Bullseye)
 - Internet connection
 - Required hardware:
-  - eInk display
-  - Motion sensor
+  - [Pimoroni inkWHAT 400x300 eInk display](https://learn.pimoroni.com/article/getting-started-with-inky-what))
+  - HC-SR501 PIR Infrared Motion Sensor
   - USB microphone
   - USB speaker
 
