@@ -46,9 +46,13 @@ echo "Setting up virtual environment for Inky..."
 python3 -m venv ~/.inky_venv
 source ~/.inky_venv/bin/activate
 
-# Install Inky from GitHub
-echo "Installing Inky display package..."
+# Install Inky and other Python dependencies
+echo "Installing Python dependencies..."
 pip install git+https://github.com/pimoroni/inky.git
+pip install SpeechRecognition
+pip install pyaudio
+pip install spacy
+pip install espeak-ng
 
 # Deactivate the virtual environment
 deactivate
@@ -82,7 +86,7 @@ Environment="JACK_NO_AUDIO_RESERVATION=1"
 Environment="JACK_NO_START_SERVER=1"
 Environment="VIRTUAL_ENV=/home/$USER/.inky_venv"
 Environment="PATH=/home/$USER/.inky_venv/bin:$PATH"
-ExecStart=$(which python) -m pi_inventory_system.main
+ExecStart=/home/$USER/.inky_venv/bin/python -m pi_inventory_system.main
 Restart=always
 RestartSec=10
 
