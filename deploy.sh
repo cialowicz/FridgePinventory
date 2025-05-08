@@ -3,21 +3,43 @@
 # Exit on error
 set -e
 
-echo "Setting up FridgePinventory on Raspberry Pi..."
+echo "Setting up FridgePinventory..."
 
-# Create virtual environment
-echo "Creating virtual environment..."
-python3 -m venv /home/admin/fridgepinventory_venv
-source /home/admin/fridgepinventory_venv/bin/activate
+# Check if we're in the project directory
+if [ ! -f "pyproject.toml" ]; then
+    echo "Error: Please run this script from the FridgePinventory project directory"
+    exit 1
+fi
 
-# Install system dependencies (like PortAudio)
+# Install system dependencies required for building packages
 echo "Installing system dependencies..."
-sudo apt-get update && sudo apt-get install -y portaudio19-dev espeak-ng
+sudo apt update
+sudo apt install -y \
+    python3-dev \
+    portaudio19-dev \
+    espeak-ng \
+    libasound2-dev \
+    python3-pyaudio \
+    python3-pip \
+    python3-venv \
+    git \
+    libopenjp2-7 \
+    libtiff5 \
+    fonts-dejavu \
+    raspi-gpio
 
-# Install Python dependencies
-echo "Installing Python dependencies..."
-pip install --upgrade pip
-pip install -e .
+# Install pipx if not already installed
+if ! command -v pipx &> /dev/null; then
+    echo "Installing pipx..."
+    python3 -m pip install --user pipx
+    python3 -m pipx ensurepath
+    # Need to reload shell environment to get pipx in PATH
+    . ~/.profile
+fi
+
+# Install the package using pipx
+echo "Installing FridgePinventory..."
+pipx install -e .
 
 # Create systemd service file
 echo "Creating systemd service..."
@@ -28,10 +50,10 @@ After=network.target
 
 [Service]
 Type=simple
-User=admin
-WorkingDirectory=/home/admin/FridgePinventory
-Environment="PYTHONPATH=/home/admin/FridgePinventory/src"
-ExecStart=/home/admin/fridgepinventory_venv/bin/python -m pi_inventory_system.main
+User=$USER
+WorkingDirectory=$(pwd)
+Environment="PYTHONPATH=$(pwd)/src"
+ExecStart=$(which python) -m pi_inventory_system.main
 Restart=always
 RestartSec=10
 
