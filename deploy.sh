@@ -27,9 +27,20 @@ sudo apt install -y \
     libtiff6 \
     fonts-dejavu \
     raspi-gpio \
-    python3-inky \
     python3-pil \
     python3-pil.imagetk
+
+# Create and activate a virtual environment for Inky
+echo "Setting up virtual environment for Inky..."
+python3 -m venv ~/.inky_venv
+source ~/.inky_venv/bin/activate
+
+# Install Inky from GitHub
+echo "Installing Inky display package..."
+pip install git+https://github.com/pimoroni/inky.git
+
+# Deactivate the virtual environment
+deactivate
 
 # Install pipx if not already installed
 if ! command -v pipx &> /dev/null; then
@@ -58,6 +69,8 @@ WorkingDirectory=$(pwd)
 Environment="PYTHONPATH=$(pwd)/src"
 Environment="JACK_NO_AUDIO_RESERVATION=1"
 Environment="JACK_NO_START_SERVER=1"
+Environment="VIRTUAL_ENV=/home/$USER/.inky_venv"
+Environment="PATH=/home/$USER/.inky_venv/bin:$PATH"
 ExecStart=$(which python) -m pi_inventory_system.main
 Restart=always
 RestartSec=10
