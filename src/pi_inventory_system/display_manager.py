@@ -2,6 +2,19 @@
 
 import os
 import logging
+
+# Configure logging for this module
+logger = logging.getLogger(__name__)
+# Set to INFO to capture all relevant logs for display initialization
+# If a global logging config is set up elsewhere, this might be overridden
+# or could be removed if the global config is sufficient.
+if not logger.handlers: # Avoid adding multiple handlers if already configured
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+logger.setLevel(logging.INFO)
+
 from math import ceil
 from pi_inventory_system.inventory_db import get_inventory
 
@@ -16,7 +29,7 @@ def _is_raspberry_pi():
 
 # Initialize display support
 is_raspberry_pi = _is_raspberry_pi()
-logging.info(f"Initial Raspberry Pi check: {is_raspberry_pi}")
+logger.info(f"Initial Raspberry Pi check: {is_raspberry_pi}")
 
 # Initialize display-related variables
 Inky = None
@@ -26,16 +39,16 @@ ImageFont = None
 
 if is_raspberry_pi:
     try:
-        logging.info("Attempting to import Inky display modules...")
+        logger.info("Attempting to import Inky display modules...")
         from inky import Inky  # type: ignore
         from PIL import Image, ImageDraw, ImageFont
-        logging.info("Successfully imported Inky display modules")
+        logger.info("Successfully imported Inky display modules")
     except ImportError as e:
-        logging.error(f"Failed to import Inky display modules: {e}")
+        logger.error(f"Failed to import Inky display modules: {e}")
         is_raspberry_pi = False
 else:
     # Mock classes for non-Raspberry Pi testing
-    logging.info("Using mock display classes for non-Raspberry Pi platform")
+    logger.info("Using mock display classes for non-Raspberry Pi platform")
     class MockInky:
         def __init__(self, color='yellow'):
             self.color = color
@@ -75,16 +88,16 @@ def is_display_supported():
 def initialize_display():
     """Initialize the Inky display."""
     if not is_display_supported():
-        logging.warning("Display not supported on this platform")
+        logger.warning("Display not supported on this platform")
         return None
     
     try:
-        logging.info("Initializing Inky display...")
+        logger.info("Initializing Inky display...")
         display = Inky('what', 'yellow')
-        logging.info("Successfully initialized Inky display")
+        logger.info("Successfully initialized Inky display")
         return display
     except Exception as e:
-        logging.error(f"Failed to initialize display: {e}")
+        logger.error(f"Failed to initialize display: {e}")
         return None
 
 def create_lozenge(draw, x, y, width, height, item_name, quantity, font):
@@ -109,14 +122,14 @@ def create_lozenge(draw, x, y, width, height, item_name, quantity, font):
 def display_inventory(display):
     """Display the current inventory on the Inky display."""
     if not display:
-        logging.warning("No display available for inventory display")
+        logger.warning("No display available for inventory display")
         return None
     
     try:
         # Get inventory data
         inventory = get_inventory()
         if not inventory:
-            logging.info("No inventory to display")
+            logger.info("No inventory to display")
             return None
         
         # Create a new image
@@ -127,7 +140,7 @@ def display_inventory(display):
         try:
             font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 16)  # Larger font for WHAT
         except IOError:
-            logging.warning("Failed to load DejaVuSans-Bold font, using default")
+            logger.warning("Failed to load DejaVuSans-Bold font, using default")
             font = ImageFont.load_default()
         
         # Calculate layout
@@ -150,17 +163,17 @@ def display_inventory(display):
         # Update display
         display.set_image(image)
         display.show()
-        logging.info("Successfully updated display with inventory")
+        logger.info("Successfully updated display with inventory")
         return True
     
     except Exception as e:
-        logging.error(f"Error displaying inventory: {e}")
+        logger.error(f"Error displaying inventory: {e}")
         return None
 
 def display_text(display, text, font_size=16):  # Larger default font size for WHAT
     """Display text on the Inky display."""
     if not display:
-        logging.warning("No display available for text display")
+        logger.warning("No display available for text display")
         return False
     
     try:
@@ -172,7 +185,7 @@ def display_text(display, text, font_size=16):  # Larger default font size for W
         try:
             font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
         except IOError:
-            logging.warning("Failed to load DejaVuSans-Bold font, using default")
+            logger.warning("Failed to load DejaVuSans-Bold font, using default")
             font = ImageFont.load_default()
         
         # Calculate text position
@@ -189,9 +202,9 @@ def display_text(display, text, font_size=16):  # Larger default font size for W
         # Update display
         display.set_image(image)
         display.show()
-        logging.info("Successfully displayed text on display")
+        logger.info("Successfully displayed text on display")
         return True
     
     except Exception as e:
-        logging.error(f"Error displaying text: {e}")
+        logger.error(f"Error displaying text: {e}")
         return False
