@@ -12,7 +12,7 @@ source /home/admin/fridgepinventory_venv/bin/activate
 
 # Install system dependencies (like PortAudio)
 echo "Installing system dependencies..."
-sudo apt-get update && sudo apt-get install -y portaudio19-dev
+sudo apt-get update && sudo apt-get install -y portaudio19-dev espeak-ng
 
 # Install Python dependencies
 echo "Installing Python dependencies..."

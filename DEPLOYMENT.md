@@ -10,8 +10,8 @@ This guide will help you set up FridgePinventory on your Raspberry Pi.
 - Required hardware:
   - eInk display
   - Motion sensor
-  - Microphone
-  - Speaker
+  - USB microphone
+  - USB speaker
 
 ## Hardware Setup
 
@@ -22,31 +22,30 @@ This guide will help you set up FridgePinventory on your Raspberry Pi.
 
 ## Software Setup
 
-1. **Install System Dependencies:**
-   Before running the deployment script, ensure necessary system libraries are installed. `PyAudio` requires the PortAudio library.
+1. Install system-level dependencies (required for building Python packages):
    ```bash
-   sudo apt-get update && sudo apt-get install portaudio19-dev
+   # Required for building RPi.GPIO and PyAudio
+   sudo apt install -y python3-dev portaudio19-dev espeak-ng
    ```
-   *Note: The `deploy.sh` script handles this automatically.*
 
 2. Clone the repository:
    ```bash
-   cd /home/admin
+   cd ~
    git clone https://github.com/cialowicz/FridgePinventory.git
    cd FridgePinventory
    ```
 
-2. Make the deployment script executable:
+3. Make the deployment script executable:
    ```bash
    chmod +x deploy.sh
    ```
 
-3. Run the deployment script:
+4. Run the deployment script:
    ```bash
    ./deploy.sh
    ```
 
-4. Start the service:
+5. Start the service:
    ```bash
    sudo systemctl start fridgepinventory.service
    ```
@@ -69,7 +68,9 @@ This guide will help you set up FridgePinventory on your Raspberry Pi.
 - Check the logs: `journalctl -u fridgepinventory.service -f`
 - Verify hardware connections
 - Check file permissions
-- Ensure all dependencies are installed (check pyproject.toml)
+- Ensure all dependencies are installed:
+  - System packages: `python3-dev portaudio19-dev espeak-ng`
+  - Python packages: Check `pyproject.toml`
 
 ### Display issues
 - Verify GPIO connections
@@ -77,9 +78,21 @@ This guide will help you set up FridgePinventory on your Raspberry Pi.
 - Ensure correct display model is configured
 
 ### Audio issues
-- Check audio device configuration
-- Verify microphone and speaker connections
-- Test audio output: `aplay /usr/share/sounds/alsa/Front_Center.wav`
+- Check audio device configuration:
+  ```bash
+  # List audio devices
+  arecord -l
+  aplay -l
+  
+  # Test audio output
+  aplay /usr/share/sounds/alsa/Front_Center.wav
+  
+  # Test microphone
+  arecord -d 5 test.wav
+  aplay test.wav
+  ```
+- Verify USB microphone and speaker connections
+- Check if devices are recognized: `lsusb`
 
 ### Motion sensor issues
 - Verify GPIO connections
@@ -90,7 +103,7 @@ This guide will help you set up FridgePinventory on your Raspberry Pi.
 
 1. Pull the latest changes:
    ```bash
-   cd /home/admin/FridgePinventory
+   cd ~/FridgePinventory
    git pull
    ```
 
@@ -117,12 +130,12 @@ This guide will help you set up FridgePinventory on your Raspberry Pi.
    sudo rm /etc/systemd/system/fridgepinventory.service
    ```
 
-3. Remove the virtual environment:
+3. Uninstall the package:
    ```bash
-   rm -rf /home/admin/fridgepinventory_venv
+   pipx uninstall FridgePinventory
    ```
 
 4. Remove the project directory:
    ```bash
-   rm -rf /home/admin/FridgePinventory
+   rm -rf ~/FridgePinventory
    ``` 
