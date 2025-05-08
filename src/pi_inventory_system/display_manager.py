@@ -16,6 +16,7 @@ def _is_raspberry_pi():
 
 # Initialize display support
 is_raspberry_pi = _is_raspberry_pi()
+logging.info(f"Initial Raspberry Pi check: {is_raspberry_pi}")
 
 # Initialize display-related variables
 Inky = None

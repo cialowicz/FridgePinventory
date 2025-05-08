@@ -3,7 +3,7 @@
 # Handle optional libraries
 try:
     import pyttsx3
-    tts_engine = pyttsx3.init()
+    # tts_engine = pyttsx3.init() # Removed global init
     def output_confirmation(message: str = "") -> bool:
         """Output a confirmation message.
         
