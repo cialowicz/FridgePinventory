@@ -64,6 +64,8 @@ pip install pyaudio
 pip install spacy
 python -m spacy download en_core_web_sm
 pip install word2number
+pip install pyttsx3
+pip install numpy
 
 # Deactivate the virtual environment
 deactivate

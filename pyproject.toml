@@ -17,6 +17,8 @@ dependencies = [
     "spacy",
     "speech_recognition",
     "word2number",
+    "pyttsx3",
+    "numpy",
 ]
 
 [project.scripts]
