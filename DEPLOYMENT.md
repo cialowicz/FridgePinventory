@@ -49,6 +49,7 @@ This guide will help you set up FridgePinventory on your Raspberry Pi.
    ```bash
    ./deploy.sh
    ```
+   This script will also create a virtual environment (`~/.inky_venv`), install Python dependencies including `spacy`, and download the necessary `en_core_web_sm` spaCy model used for natural language processing in the command processor.
 
 6. Start the service:
    ```bash
