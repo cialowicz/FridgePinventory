@@ -26,7 +26,8 @@ sudo apt install -y \
     libopenjp2-7 \
     libtiff5 \
     fonts-dejavu \
-    raspi-gpio
+    raspi-gpio \
+    python3-inky
 
 # Install pipx if not already installed
 if ! command -v pipx &> /dev/null; then
@@ -53,6 +54,8 @@ Type=simple
 User=$USER
 WorkingDirectory=$(pwd)
 Environment="PYTHONPATH=$(pwd)/src"
+Environment="JACK_NO_AUDIO_RESERVATION=1"
+Environment="JACK_NO_START_SERVER=1"
 ExecStart=$(which python) -m pi_inventory_system.main
 Restart=always
 RestartSec=10
