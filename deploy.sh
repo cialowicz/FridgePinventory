@@ -67,21 +67,19 @@ pip install word2number
 pip install pyttsx3
 pip install numpy
 
+# Install the current project in editable mode into the venv
+echo "Installing FridgePinventory into the virtual environment..."
+pip install -e .[test]
+
 # Deactivate the virtual environment
 deactivate
 
-# Install pipx if not already installed
-if ! command -v pipx &> /dev/null; then
-    echo "Installing pipx..."
-    python3 -m pip install --user pipx
-    python3 -m pipx ensurepath
-    # Need to reload shell environment to get pipx in PATH
-    . ~/.profile
-fi
-
-# Install the package using pipx
-echo "Installing FridgePinventory..."
-pipx install --include-deps -e .
+# Add user to necessary groups for hardware access
+echo "Adding user $USER to audio, gpio, spi groups..."
+sudo usermod -a -G audio "$USER"
+sudo usermod -a -G gpio "$USER"
+sudo usermod -a -G spi "$USER"
+echo "NOTE: You may need to reboot for group changes to take effect."
 
 # Create systemd service file
 echo "Creating systemd service..."
