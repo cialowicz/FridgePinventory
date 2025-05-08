@@ -53,7 +53,7 @@ fi
 
 # Install the package using pipx
 echo "Installing FridgePinventory..."
-pipx install -e .
+pipx install --include-deps -e .
 
 # Create systemd service file
 echo "Creating systemd service..."
