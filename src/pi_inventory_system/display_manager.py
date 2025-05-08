@@ -38,7 +38,7 @@ else:
     class MockInkyWHAT:
         def __init__(self, color='yellow'):
             self.color = color
-            self.WIDTH = 400
+            self.WIDTH = 400  # InkyWHAT dimensions
             self.HEIGHT = 300
         
         def set_image(self, image):
@@ -124,16 +124,16 @@ def display_inventory(display):
         
         # Load font
         try:
-            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 16)
+            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 16)  # Larger font for WHAT
         except IOError:
             logging.warning("Failed to load DejaVuSans-Bold font, using default")
             font = ImageFont.load_default()
         
         # Calculate layout
-        items_per_row = 2
-        lozenge_width = (display.WIDTH - 30) // items_per_row
-        lozenge_height = 40
-        spacing = 10
+        items_per_row = 2  # WHAT is wider, so we can fit two items per row
+        lozenge_width = (display.WIDTH - 30) // items_per_row  # Leave margins
+        lozenge_height = 40  # Taller for WHAT
+        spacing = 10  # More spacing for WHAT
         
         # Draw lozenges
         for i, item in enumerate(inventory):
@@ -156,7 +156,7 @@ def display_inventory(display):
         logging.error(f"Error displaying inventory: {e}")
         return None
 
-def display_text(display, text, font_size=16):
+def display_text(display, text, font_size=16):  # Larger default font size for WHAT
     """Display text on the InkyWHAT display."""
     if not display:
         logging.warning("No display available for text display")

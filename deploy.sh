@@ -24,10 +24,15 @@ sudo apt install -y \
     python3-venv \
     git \
     libopenjp2-7 \
-    libtiff5 \
+    libtiff6 \
     fonts-dejavu \
     raspi-gpio \
-    python3-inky
+    python3-pil \
+    python3-pil.imagetk
+
+# Install Inky display package via pip
+echo "Installing Inky display package..."
+python3 -m pip install inky
 
 # Install pipx if not already installed
 if ! command -v pipx &> /dev/null; then
