@@ -11,6 +11,17 @@ if [ ! -f "pyproject.toml" ]; then
     exit 1
 fi
 
+# Remove existing service if it exists
+echo "Removing existing service..."
+if systemctl is-active --quiet fridgepinventory.service; then
+    sudo systemctl stop fridgepinventory.service
+fi
+if systemctl is-enabled --quiet fridgepinventory.service; then
+    sudo systemctl disable fridgepinventory.service
+fi
+sudo rm -f /etc/systemd/system/fridgepinventory.service
+sudo systemctl daemon-reload
+
 # Install system dependencies required for building packages
 echo "Installing system dependencies..."
 sudo apt update
