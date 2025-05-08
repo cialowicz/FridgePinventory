@@ -81,6 +81,11 @@ pipx install --include-deps -e .
 
 # Create systemd service file
 echo "Creating systemd service..."
+
+# Determine home directory for the service user
+# $USER here is the user running this deploy.sh script
+SERVICE_USER_EFFECTIVE_HOME=$(eval echo "~$USER")
+
 sudo tee /etc/systemd/system/fridgepinventory.service > /dev/null << EOL
 [Unit]
 Description=FridgePinventory Service
@@ -93,10 +98,10 @@ WorkingDirectory=$(pwd)
 Environment="PYTHONPATH=$(pwd)/src"
 Environment="JACK_NO_AUDIO_RESERVATION=1"
 Environment="JACK_NO_START_SERVER=1"
-Environment="VIRTUAL_ENV=/home/$USER/.inky_venv"
-Environment="PATH=/home/$USER/.inky_venv/bin:$PATH"
+Environment="VIRTUAL_ENV=${SERVICE_USER_EFFECTIVE_HOME}/.inky_venv"
+Environment="PATH=${SERVICE_USER_EFFECTIVE_HOME}/.inky_venv/bin:$PATH"
 Environment="ESPEAK_DATA_PATH=/usr/share/espeak-ng-data"
-ExecStart=/home/$USER/.inky_venv/bin/python -m pi_inventory_system.main
+ExecStart=${SERVICE_USER_EFFECTIVE_HOME}/.inky_venv/bin/python -m pi_inventory_system.main
 Restart=always
 RestartSec=10
 
