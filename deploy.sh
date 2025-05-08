@@ -39,8 +39,17 @@ sudo apt install -y \
     fonts-dejavu \
     raspi-gpio \
     python3-pil \
-    python3-pil.imagetk \
-    python3-espeak-ng
+    python3-pil.imagetk
+
+# Verify espeak-ng installation
+echo "Verifying espeak-ng installation..."
+if ! command -v espeak-ng &> /dev/null; then
+    echo "Error: espeak-ng not found in PATH"
+    echo "Checking installation location..."
+    find /usr -name "espeak-ng" 2>/dev/null || echo "espeak-ng not found in /usr"
+    exit 1
+fi
+echo "espeak-ng found at: $(which espeak-ng)"
 
 # Create and activate a virtual environment for Inky
 echo "Setting up virtual environment for Inky..."
@@ -86,6 +95,7 @@ Environment="JACK_NO_AUDIO_RESERVATION=1"
 Environment="JACK_NO_START_SERVER=1"
 Environment="VIRTUAL_ENV=/home/$USER/.inky_venv"
 Environment="PATH=/home/$USER/.inky_venv/bin:$PATH"
+Environment="ESPEAK_DATA_PATH=/usr/share/espeak-ng-data"
 ExecStart=/home/$USER/.inky_venv/bin/python -m pi_inventory_system.main
 Restart=always
 RestartSec=10
