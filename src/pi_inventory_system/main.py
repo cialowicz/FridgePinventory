@@ -5,8 +5,8 @@ from pi_inventory_system.diagnostics import run_startup_diagnostics
 from pi_inventory_system.display_manager import initialize_display, display_inventory
 from pi_inventory_system.motion_sensor import detect_motion, cleanup
 from pi_inventory_system.voice_recognition import recognize_speech_from_mic
-from pi_inventory_system.command_processor import process_command
-from pi_inventory_system.inventory_controller import handle_command
+from pi_inventory_system.command_processor import interpret_command, execute_command
+from pi_inventory_system.inventory_controller import InventoryController
 import time
 
 def main():
@@ -31,6 +31,9 @@ def main():
     # Initialize display
     display = initialize_display()
     
+    # Initialize inventory controller
+    controller = InventoryController()
+    
     try:
         # Main loop
         while True:
@@ -47,8 +50,8 @@ def main():
                     logging.info(f"Command received: {command}")
                     
                     # Process command
-                    result = handle_command(command)
-                    logging.info(f"Command result: {result}")
+                    success, feedback = controller.process_command(command)
+                    logging.info(f"Command result: {feedback}")
                     
                     # Update display
                     display_inventory(display)
