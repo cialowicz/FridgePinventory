@@ -8,9 +8,9 @@ from pi_inventory_system.inventory_db import init_db, get_db, close_db, get_migr
 @pytest.fixture
 def mock_raspberry_pi():
     """Mock Raspberry Pi environment for display and GPIO tests."""
-    with patch('pi_inventory_system.display_manager._is_raspberry_pi') as mock:
-        mock.return_value = True
-        yield mock
+    with patch('pi_inventory_system.display_manager.is_display_supported') as mock_is_supported:
+        mock_is_supported.return_value = True  # Default to True for tests expecting display support
+        yield mock_is_supported
 
 @pytest.fixture
 def mock_gpio_environment():
@@ -19,13 +19,12 @@ def mock_gpio_environment():
     import pi_inventory_system.motion_sensor as motion_sensor
     motion_sensor._gpio_initialized = False
 
-    with patch('pi_inventory_system.motion_sensor.platform') as mock_platform, \
-         patch('pi_inventory_system.motion_sensor.GPIO') as mock_gpio:
+    with patch('pi_inventory_system.motion_sensor._is_raspberry_pi') as mock_is_pi, \
+         patch('pi_inventory_system.motion_sensor.GPIO', create=True) as mock_gpio:  # Added create=True for GPIO as it might not exist if not on Pi
         
-        mock_platform.system.return_value = 'Linux'
-        mock_platform.machine.return_value = 'armv7l'
+        mock_is_pi.return_value = True # Simulate running on a Pi
         
-        yield mock_platform, mock_gpio
+        yield mock_is_pi, mock_gpio
 
 @pytest.fixture
 def db_connection():

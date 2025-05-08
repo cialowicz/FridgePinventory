@@ -2,39 +2,22 @@
 
 import pytest
 from unittest.mock import patch, MagicMock
-from pi_inventory_system.display_manager import (
-    initialize_display,
-    display_inventory,
-    is_display_supported,
-    InkyWHAT,
-    Image,
-    ImageDraw,
-    ImageFont,
-    _is_raspberry_pi,
-    get_inventory,
-    create_lozenge
-)
-
-@pytest.fixture
-def mock_raspberry_pi():
-    with patch('pi_inventory_system.display_manager._is_raspberry_pi') as mock:
-        mock.return_value = True
-        yield mock
+import pi_inventory_system.display_manager
 
 def test_is_display_supported(mock_raspberry_pi):
     """Test display support detection."""
-    assert is_display_supported()
+    assert pi_inventory_system.display_manager.is_display_supported()
 
     mock_raspberry_pi.return_value = False
-    assert not is_display_supported()
+    assert not pi_inventory_system.display_manager.is_display_supported()
 
 def test_initialize_display(mock_raspberry_pi):
     """Test display initialization."""
-    with patch('pi_inventory_system.display_manager.InkyWHAT') as mock_inky:
+    with patch('pi_inventory_system.display_manager.Inky') as mock_inky:  # This patch target is correct as Inky is defined in display_manager
         mock_instance = MagicMock()
         mock_instance.color = 'yellow'
         mock_inky.return_value = mock_instance
-        display = initialize_display()
+        display = pi_inventory_system.display_manager.initialize_display()
         assert isinstance(display, MagicMock)
         assert display.color == 'yellow'
 
@@ -66,7 +49,7 @@ def test_display_inventory(mock_raspberry_pi, mock_display):
             mock_draw.Draw.return_value = mock_draw_instance
             
             # Call the function
-            result = display_inventory(mock_display)
+            result = pi_inventory_system.display_manager.display_inventory(mock_display)
             
             # Verify the display was updated
             mock_display.set_image.assert_called_once()
@@ -75,13 +58,13 @@ def test_display_inventory(mock_raspberry_pi, mock_display):
 
 def test_display_inventory_no_display(mock_raspberry_pi):
     """Test inventory display when no display is available."""
-    result = display_inventory(None)
+    result = pi_inventory_system.display_manager.display_inventory(None)
     assert result is None
 
 def test_initialize_display_no_raspberry_pi(mock_raspberry_pi):
     """Test display initialization on non-Raspberry Pi."""
     mock_raspberry_pi.return_value = False
-    display = initialize_display()
+    display = pi_inventory_system.display_manager.initialize_display()
     assert display is None
 
 def test_lozenge_border_color(mock_raspberry_pi):
@@ -91,19 +74,19 @@ def test_lozenge_border_color(mock_raspberry_pi):
     mock_font = MagicMock()
     
     # Test with quantity > 2 (should use black border)
-    create_lozenge(mock_draw, 0, 0, 100, 50, "Test Item", 3, mock_font)
+    pi_inventory_system.display_manager.create_lozenge(mock_draw, 0, 0, 100, 50, "Test Item", 3, mock_font)
     mock_draw.rectangle.assert_called_with([(0, 0), (100, 50)], fill='white', outline='black')
     
     # Reset mock for next test
     mock_draw.reset_mock()
     
     # Test with quantity = 2 (should use yellow border)
-    create_lozenge(mock_draw, 0, 0, 100, 50, "Test Item", 2, mock_font)
+    pi_inventory_system.display_manager.create_lozenge(mock_draw, 0, 0, 100, 50, "Test Item", 2, mock_font)
     mock_draw.rectangle.assert_called_with([(0, 0), (100, 50)], fill='white', outline='yellow')
     
     # Reset mock for next test
     mock_draw.reset_mock()
     
     # Test with quantity < 2 (should use yellow border)
-    create_lozenge(mock_draw, 0, 0, 100, 50, "Test Item", 1, mock_font)
+    pi_inventory_system.display_manager.create_lozenge(mock_draw, 0, 0, 100, 50, "Test Item", 1, mock_font)
     mock_draw.rectangle.assert_called_with([(0, 0), (100, 50)], fill='white', outline='yellow')

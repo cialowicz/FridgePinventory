@@ -35,8 +35,8 @@ def test_motion_sensor_supported_with_gpio(mock_gpio_environment):
 
 def test_motion_sensor_not_supported_without_gpio(mock_gpio_environment):
     """Test motion sensor support detection without GPIO."""
-    mock_platform, _ = mock_gpio_environment
-    mock_platform.system.return_value = 'Darwin'
+    mock_is_pi, _ = mock_gpio_environment
+    mock_is_pi.return_value = False  # Simulate not running on a Pi
     assert not is_motion_sensor_supported()
 
 def test_motion_sensor_initialization(mock_gpio_environment):

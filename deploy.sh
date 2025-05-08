@@ -62,6 +62,7 @@ pip install git+https://github.com/pimoroni/inky.git
 pip install SpeechRecognition
 pip install pyaudio
 pip install spacy
+pip install word2number
 
 # Deactivate the virtual environment
 deactivate

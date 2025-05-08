@@ -16,6 +16,7 @@ dependencies = [
     "espeak-ng",
     "spacy",
     "speech_recognition",
+    "word2number",
 ]
 
 [project.scripts]

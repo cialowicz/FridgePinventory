@@ -18,7 +18,7 @@ def _is_raspberry_pi():
 is_raspberry_pi = _is_raspberry_pi()
 
 # Initialize display-related variables
-InkyWHAT = None
+Inky = None
 Image = None
 ImageDraw = None
 ImageFont = None
@@ -26,7 +26,7 @@ ImageFont = None
 if is_raspberry_pi:
     try:
         logging.info("Attempting to import Inky display modules...")
-        from inky.inky_uc8159 import InkyWHAT  # type: ignore
+        from inky import Inky  # type: ignore
         from PIL import Image, ImageDraw, ImageFont
         logging.info("Successfully imported Inky display modules")
     except ImportError as e:
@@ -35,10 +35,10 @@ if is_raspberry_pi:
 else:
     # Mock classes for non-Raspberry Pi testing
     logging.info("Using mock display classes for non-Raspberry Pi platform")
-    class MockInkyWHAT:
+    class MockInky:
         def __init__(self, color='yellow'):
             self.color = color
-            self.WIDTH = 400  # InkyWHAT dimensions
+            self.WIDTH = 400  # Inky dimensions
             self.HEIGHT = 300
         
         def set_image(self, image):
@@ -62,7 +62,7 @@ else:
         def truetype(font, size):
             return None
     
-    InkyWHAT = MockInkyWHAT
+    Inky = MockInky
     Image = MockImage
     ImageDraw = MockImageDraw
     ImageFont = MockImageFont
@@ -72,15 +72,15 @@ def is_display_supported():
     return is_raspberry_pi
 
 def initialize_display():
-    """Initialize the InkyWHAT display."""
+    """Initialize the Inky display."""
     if not is_display_supported():
         logging.warning("Display not supported on this platform")
         return None
     
     try:
-        logging.info("Initializing InkyWHAT display...")
-        display = InkyWHAT('yellow')
-        logging.info("Successfully initialized InkyWHAT display")
+        logging.info("Initializing Inky display...")
+        display = Inky('what', 'yellow')
+        logging.info("Successfully initialized Inky display")
         return display
     except Exception as e:
         logging.error(f"Failed to initialize display: {e}")
@@ -106,7 +106,7 @@ def create_lozenge(draw, x, y, width, height, item_name, quantity, font):
     draw.text((text_x, text_y), text, fill='black', font=font)
 
 def display_inventory(display):
-    """Display the current inventory on the InkyWHAT display."""
+    """Display the current inventory on the Inky display."""
     if not display:
         logging.warning("No display available for inventory display")
         return None
@@ -157,7 +157,7 @@ def display_inventory(display):
         return None
 
 def display_text(display, text, font_size=16):  # Larger default font size for WHAT
-    """Display text on the InkyWHAT display."""
+    """Display text on the Inky display."""
     if not display:
         logging.warning("No display available for text display")
         return False
