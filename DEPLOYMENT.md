@@ -35,17 +35,22 @@ This guide will help you set up FridgePinventory on your Raspberry Pi.
    cd FridgePinventory
    ```
 
-3. Make the deployment script executable:
+3. Install the Pimoroni inkyWHAT eInk display library:
+   ```
+   curl -sSL https://get.pimoroni.com/inky | bash
+   ```
+
+4. Make the deployment script executable:
    ```bash
    chmod +x deploy.sh
    ```
 
-4. Run the deployment script:
+5. Run the deployment script:
    ```bash
    ./deploy.sh
    ```
 
-5. Start the service:
+6. Start the service:
    ```bash
    sudo systemctl start fridgepinventory.service
    ```

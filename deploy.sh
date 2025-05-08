@@ -11,10 +11,6 @@ if [ ! -f "pyproject.toml" ]; then
     exit 1
 fi
 
-# Add Pimoroni repository for Inky display
-echo "Adding Pimoroni repository..."
-curl -sSL https://get.pimoroni.com/inky | bash
-
 # Install system dependencies required for building packages
 echo "Installing system dependencies..."
 sudo apt update
