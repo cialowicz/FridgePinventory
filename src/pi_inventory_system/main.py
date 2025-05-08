@@ -20,13 +20,16 @@ def main():
     logging.info("Starting FridgePinventory...")
     
     # Run startup diagnostics
-    display_ok, motion_sensor_ok = run_startup_diagnostics()
+    display_ok, motion_sensor_ok, audio_ok = run_startup_diagnostics()
     
     if not display_ok:
         logging.error("Display initialization failed. Some features may not work.")
     
     if not motion_sensor_ok:
         logging.error("Motion sensor initialization failed. Some features may not work.")
+        
+    if not audio_ok:
+        logging.error("Audio initialization failed. Some features may not work.")
     
     # Initialize display
     display = initialize_display()

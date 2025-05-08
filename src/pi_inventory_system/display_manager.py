@@ -1,13 +1,19 @@
 # Module for managing the eInk display
 
 import platform
+import os
 from math import ceil
 from pi_inventory_system.inventory_db import get_inventory
 import logging
 
 def _is_raspberry_pi():
     """Check if we're running on a Raspberry Pi."""
-    return platform.system() == 'Linux' and platform.machine().startswith('arm')
+    # Check for Raspberry Pi specific files
+    if os.path.exists('/proc/device-tree/model'):
+        with open('/proc/device-tree/model', 'r') as f:
+            model = f.read().lower()
+            return 'raspberry pi' in model
+    return False
 
 # Initialize display support
 is_raspberry_pi = _is_raspberry_pi()
@@ -68,7 +74,8 @@ def initialize_display():
     try:
         display = InkyWHAT('yellow')
         return display
-    except Exception:
+    except Exception as e:
+        logging.error(f"Failed to initialize display: {e}")
         return None
 
 def create_lozenge(draw, x, y, width, height, item_name, quantity, font):
