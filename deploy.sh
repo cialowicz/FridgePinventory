@@ -39,7 +39,8 @@ sudo apt install -y \
     fonts-dejavu \
     raspi-gpio \
     python3-pil \
-    python3-pil.imagetk
+    python3-pil.imagetk \
+    python3-espeak-ng
 
 # Create and activate a virtual environment for Inky
 echo "Setting up virtual environment for Inky..."
@@ -52,7 +53,6 @@ pip install git+https://github.com/pimoroni/inky.git
 pip install SpeechRecognition
 pip install pyaudio
 pip install spacy
-pip install espeak-ng
 
 # Deactivate the virtual environment
 deactivate
