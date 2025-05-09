@@ -69,7 +69,7 @@ pip install numpy
 
 # Install the current project in editable mode into the venv
 echo "Installing FridgePinventory into the virtual environment..."
-pip install -e .[test]
+pip install -e .
 
 # Deactivate the virtual environment
 deactivate
