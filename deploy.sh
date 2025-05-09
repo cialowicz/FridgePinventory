@@ -39,7 +39,8 @@ sudo apt install -y \
     fonts-dejavu \
     raspi-gpio \
     python3-pil \
-    python3-pil.imagetk
+    python3-pil.imagetk \
+    python3-spidev
 
 # Verify espeak-ng installation
 echo "Verifying espeak-ng installation..."

@@ -4,8 +4,8 @@ This guide will help you set up FridgePinventory on your Raspberry Pi.
 
 ## Prerequisites
 
-- Raspberry Pi (tested on Raspberry Pi 4)
-- Raspberry Pi OS (tested on Raspberry Pi OS Bullseye)
+- Raspberry Pi (tested on Raspberry Pi 5)
+- Raspberry Pi OS (tested on Raspberry Pi OS Bookworm)
 - Internet connection
 - Required hardware:
   - [Pimoroni inkWHAT 400x300 eInk display](https://learn.pimoroni.com/article/getting-started-with-inky-what))
@@ -22,36 +22,42 @@ This guide will help you set up FridgePinventory on your Raspberry Pi.
 
 ## Software Setup
 
-1. Install system-level dependencies (required for building Python packages):
+1. Enable SPI Interface on Raspberry Pi:
+   ```bash
+   sudo raspi-config
+   ```
+   Select "Interface Options" -> "SPI" -> "Yes", then reboot
+
+2. Install system-level dependencies (required for building Python packages):
    ```bash
    # Required for building RPi.GPIO and PyAudio
    sudo apt install -y python3-dev portaudio19-dev espeak-ng
    ```
 
-2. Clone the repository:
+3. Clone the repository:
    ```bash
    cd ~
    git clone https://github.com/cialowicz/FridgePinventory.git
    cd FridgePinventory
    ```
 
-3. Install the Pimoroni inkyWHAT eInk display library:
+4. Install the Pimoroni inkyWHAT eInk display library:
    ```
    curl -sSL https://get.pimoroni.com/inky | bash
    ```
 
-4. Make the deployment script executable:
+5. Make the deployment script executable:
    ```bash
    chmod +x deploy.sh
    ```
 
-5. Run the deployment script:
+6. Run the deployment script:
    ```bash
    ./deploy.sh
    ```
    This script will also create a virtual environment (`~/.inky_venv`), install Python dependencies including `spacy` (and its `en_core_web_sm` model for NLP), `pyttsx3` (for text-to-speech), and `numpy` (a common dependency), and download the necessary `en_core_web_sm` spaCy model used for natural language processing in the command processor.
 
-6. Start the service:
+7. Start the service:
    ```bash
    sudo systemctl start fridgepinventory.service
    ```
