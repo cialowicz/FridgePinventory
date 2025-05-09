@@ -14,7 +14,7 @@ requires-python = ">=3.8"
 dependencies = [
     "pyaudio",
     "spacy",
-    "speech_recognition",
+    "SpeechRecognition",
     "word2number",
     "pyttsx3",
     "numpy",
