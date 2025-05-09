@@ -13,7 +13,6 @@ readme = "README.md"
 requires-python = ">=3.8"
 dependencies = [
     "pyaudio",
-    "espeak-ng",
     "spacy",
     "speech_recognition",
     "word2number",
