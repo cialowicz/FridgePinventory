@@ -30,6 +30,10 @@ sudo apt install -y \
     portaudio19-dev \
     espeak-ng \
     libasound2-dev \
+    swig \
+    libpulse-dev \
+    flac \
+    libjack-jackd2-dev \
     python3-pyaudio \
     python3-pip \
     python3-venv \
@@ -111,6 +115,11 @@ echo "DEBUG: Attempting to install numpy..."
 pip install numpy
 echo "DEBUG: numpy install command finished. Checking..."
 pip list | grep -i numpy || echo "DEBUG: numpy NOT found."
+
+echo "DEBUG: Attempting to install pocketsphinx..."
+pip install pocketsphinx
+echo "DEBUG: pocketsphinx install command finished. Checking..."
+pip list | grep -i pocketsphinx || echo "DEBUG: pocketsphinx NOT found."
  
 # Install the current project in editable mode into the venv
 echo "Installing FridgePinventory into virtual environment..."

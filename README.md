@@ -20,29 +20,65 @@ An inventory management system for a chest freezer, built using a Raspberry Pi 5
 
 ## Setup Instructions
 
-1. Install system dependencies:
-   ```bash
-   # For Raspberry Pi OS / Debian / Ubuntu
-   sudo apt-get update
-   sudo apt-get install -y portaudio19-dev python3-dev
+### For Raspberry Pi (Recommended)
 
-   # For macOS
-   brew install portaudio
-   ```
+The easiest and recommended way to set up the FridgePinventory system on a Raspberry Pi is by using the provided deployment script. This script automates the installation of all system packages, Python dependencies within a dedicated virtual environment (`~/.inky_venv`), and configures the application to run as a systemd service.
 
-2. Create and activate a virtual environment (recommended):
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-   ```
+1.  Ensure you have `git` installed on your Raspberry Pi:
+    ```bash
+    sudo apt update && sudo apt install -y git
+    ```
+2.  Clone the repository (replace `<your-repository-url>` with the actual URL if needed):
+    ```bash
+    git clone <your-repository-url> FridgePinventory
+    cd FridgePinventory
+    ```
+3.  Make the deployment script executable:
+    ```bash
+    chmod +x deploy.sh
+    ```
+4.  Run the deployment script **as your regular user (e.g., `admin` or `pi`), not with `sudo`**:
+    ```bash
+    ./deploy.sh
+    ```
+    The script uses `sudo` internally for commands that require root privileges.
+5.  Follow any prompts from the script. A reboot is typically recommended after the script finishes to ensure all changes (like group memberships for hardware access) take effect. After rebooting, the `fridgepinventory` service should start automatically.
 
-3. Install the project and its dependencies:
-   ```bash
-   # Install in development mode
-   pip install -e .
-   # Install test dependencies
-   pip install -e ".[test]"
-   ```
+The `deploy.sh` script handles the installation of numerous dependencies, including but not limited to: `python3-dev`, `portaudio19-dev`, `espeak-ng`, `swig` (for PocketSphinx), `libpulse-dev`, `raspi-gpio`, `python3-pil`, and Python libraries such as `inky`, `SpeechRecognition`, `pocketsphinx`, `spacy`, etc., into the `~/.inky_venv` virtual environment.
+
+### For macOS / Other Development Environments (Manual Setup)
+
+These instructions are for setting up a development environment on macOS or other non-Raspberry Pi systems. The application will run in a simulated mode without actual hardware interaction.
+
+1.  **Install System Dependencies:**
+    *   **macOS:**
+        ```bash
+        brew install portaudio
+        ```
+        *(Note: If you intend to install and use `pocketsphinx` locally for offline speech recognition, you might also need `swig` and `flac`: `brew install swig flac`. Currently, `pocketsphinx` is primarily configured for the Raspberry Pi via `deploy.sh`.)*
+    *   **Debian/Ubuntu (Manual for Pi or other Linux):**
+        If you are manually setting up on a Raspberry Pi (i.e., not using `deploy.sh`) or another Debian-based system, you'll need a comprehensive list of packages. Refer to the contents of `deploy.sh` for the most up-to-date list. Key packages include:
+        ```bash
+        sudo apt-get update
+        sudo apt-get install -y python3-dev python3-venv python3-pip portaudio19-dev libasound2-dev espeak-ng swig libpulse-dev flac libjack-jackd2-dev git libopenjp2-7 libtiff6 fonts-dejavu raspi-gpio python3-pil python3-pil.imagetk python3-spidev
+        ```
+
+2.  **Create and Activate Virtual Environment:**
+    It's highly recommended to use a virtual environment for managing project dependencies. For manual setups, you can create one in the project directory:
+    ```bash
+    python3 -m venv .venv
+    source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+    ```
+
+3.  **Install Project Dependencies:**
+    The project's core Python dependencies are listed in `pyproject.toml`.
+    ```bash
+    # Install in development mode (includes runtime dependencies)
+    pip install -e .
+    # Install test dependencies (optional)
+    pip install -e ".[test]"
+    ```
+    *(Note: `pocketsphinx` is not listed in `pyproject.toml`'s default dependencies. For the Raspberry Pi, it's installed by `deploy.sh`. If you need offline speech recognition in your manual development environment, ensure its system dependencies (like `swig`, `flac`) are present and then install it: `pip install pocketsphinx`.)*
 
 4. Connect the hardware components to the Raspberry Pi:
    - Connect the PIR sensor to GPIO pin 4
