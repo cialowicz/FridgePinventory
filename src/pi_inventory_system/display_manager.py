@@ -45,11 +45,14 @@ else:
     logger.info("Not a Raspberry Pi platform. Inky display will not be available.")
     INKY_AVAILABLE = False
 
-# Initialize display-related variables
+from PIL import Image, ImageDraw, ImageFont
+
+if Image is None:
+    logger.critical("Critical Error: PIL.Image is None immediately after import!")
+else:
+    logger.info(f"PIL.Image imported: type is {type(Image)}")
+
 Inky = None
-Image = None
-ImageDraw = None
-ImageFont = None
 
 def is_display_supported() -> bool:
     """Checks if the display is supported on the current platform."""
@@ -171,6 +174,11 @@ def display_text(display, text, font_size=16):  # Larger default font size for W
         return False
     
     try:
+
+        if Image is None:
+            logger.critical("Critical Error: PIL.Image is None immediately after import!")
+            return False
+        
         # Create a new image
         image = Image.new("P", (display.WIDTH, display.HEIGHT))
         draw = ImageDraw.Draw(image)
