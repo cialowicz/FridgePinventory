@@ -8,9 +8,17 @@ from pi_inventory_system.inventory_db import init_db, get_db, close_db, get_migr
 @pytest.fixture
 def mock_raspberry_pi():
     """Mock Raspberry Pi environment for display and GPIO tests."""
-    with patch('pi_inventory_system.display_manager.is_display_supported') as mock_is_supported:
-        mock_is_supported.return_value = True  # Default to True for tests expecting display support
-        yield mock_is_supported
+    # This mock ensures that when display_manager.py is imported and performs its initial checks,
+    # it believes it's on a Raspberry Pi and that the inky library's auto function is available.
+    mock_auto_function = MagicMock(name="mock_inky_auto_dot_auto_globally")
+    with patch('pi_inventory_system.display_manager._is_raspberry_pi', return_value=True) as mock_is_pi_internal, \
+         patch('inky.auto.auto', mock_auto_function) as mock_inky_auto_import_source:
+        # Because 'inky.auto.auto' is patched, the import in display_manager.py:
+        #   from inky.auto import auto as auto_inky_display
+        # will result in display_manager.auto_inky_display being mock_auto_function.
+        # Consequently, INKY_AVAILABLE will be set to True in display_manager.py.
+        # And display_manager.is_display_supported() will evaluate to True.
+        yield mock_is_pi_internal, mock_inky_auto_import_source
 
 @pytest.fixture
 def mock_gpio_environment():

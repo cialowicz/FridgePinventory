@@ -11,15 +11,27 @@ def test_is_display_supported(mock_raspberry_pi):
     mock_raspberry_pi.return_value = False
     assert not pi_inventory_system.display_manager.is_display_supported()
 
-def test_initialize_display(mock_raspberry_pi):
+def test_initialize_display(mock_raspberry_pi): 
     """Test display initialization."""
-    with patch('pi_inventory_system.display_manager.Inky') as mock_inky:  # This patch target is correct as Inky is defined in display_manager
-        mock_instance = MagicMock()
-        mock_instance.color = 'yellow'
-        mock_inky.return_value = mock_instance
+    # The mock_raspberry_pi fixture ensures that display_manager.py loads as if on a Pi
+    # and 'pi_inventory_system.display_manager.auto_inky_display' is already a MagicMock
+    # (specifically, mock_inky_auto_import_source from the fixture).
+    # We patch it again here to control its behavior for this specific test.
+    with patch('pi_inventory_system.display_manager.auto_inky_display') as mock_auto_inky_call_in_test:
+        mock_display_object = MagicMock(name="mock_returned_display_object")
+        # Mock attributes/methods expected to be used on the display object by initialize_display()
+        mock_display_object.WHITE = "mock_white_color" # Simulate display.WHITE
+        mock_display_object.set_border = MagicMock()
+        mock_display_object.show = MagicMock()
+
+        mock_auto_inky_call_in_test.return_value = mock_display_object
+
         display = pi_inventory_system.display_manager.initialize_display()
-        assert isinstance(display, MagicMock)
-        assert display.color == 'yellow'
+
+        assert display is mock_display_object
+        mock_auto_inky_call_in_test.assert_called_once_with(verbose=True)
+        mock_display_object.set_border.assert_called_once_with(mock_display_object.WHITE)
+        mock_display_object.show.assert_called_once()
 
 def test_display_inventory(mock_raspberry_pi, mock_display):
     """Test inventory display."""

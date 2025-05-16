@@ -2,21 +2,15 @@
 
 import os
 import logging
+import traceback
 
 # Configure logging for this module
 logger = logging.getLogger(__name__)
-# Set to INFO to capture all relevant logs for display initialization
-# If a global logging config is set up elsewhere, this might be overridden
-# or could be removed if the global config is sufficient.
-if not logger.handlers: # Avoid adding multiple handlers if already configured
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
-logger.setLevel(logging.INFO)
 
 from math import ceil
 from pi_inventory_system.inventory_db import get_inventory
+
+INKY_AVAILABLE = False
 
 def _is_raspberry_pi():
     """Check if we're running on a Raspberry Pi."""
@@ -31,73 +25,73 @@ def _is_raspberry_pi():
 is_raspberry_pi = _is_raspberry_pi()
 logger.info(f"Initial Raspberry Pi check: {is_raspberry_pi}")
 
+if is_raspberry_pi:
+    try:
+        # Renamed import to avoid conflict if 'auto' is used as a variable name elsewhere
+        from inky.auto import auto as auto_inky_display 
+        # from inky import InkyPHAT, InkyWHAT # For specific display types
+        # from inky import Inky # If using a specific model like InkyImpression
+        INKY_AVAILABLE = True
+        logger.info("Inky library successfully imported.")
+    except ImportError as e:
+        # Log the import error for Inky specifically
+        logger.warning(f"Inky library not found or failed to import: {e}. Display will not be available.")
+        INKY_AVAILABLE = False
+    except Exception as e:
+        logger.error(f"An unexpected error occurred during Inky import: {e}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        INKY_AVAILABLE = False
+else:
+    logger.info("Not a Raspberry Pi platform. Inky display will not be available.")
+    INKY_AVAILABLE = False
+
 # Initialize display-related variables
 Inky = None
 Image = None
 ImageDraw = None
 ImageFont = None
 
-if is_raspberry_pi:
-    try:
-        logger.info("Attempting to import Inky display modules...")
-        from inky import Inky  # type: ignore
-        from PIL import Image, ImageDraw, ImageFont
-        logger.info("Successfully imported Inky display modules")
-    except ImportError as e:
-        logger.error(f"Failed to import Inky display modules: {e}")
-        is_raspberry_pi = False
-else:
-    # Mock classes for non-Raspberry Pi testing
-    logger.info("Using mock display classes for non-Raspberry Pi platform")
-    class MockInky:
-        def __init__(self, color='yellow'):
-            self.color = color
-            self.WIDTH = 400  # Inky dimensions
-            self.HEIGHT = 300
-        
-        def set_image(self, image):
-            pass
-        
-        def show(self):
-            pass
-    
-    class MockImage:
-        @staticmethod
-        def new(mode, size, color):
-            return None
-    
-    class MockImageDraw:
-        @staticmethod
-        def Draw(image):
-            return None
-    
-    class MockImageFont:
-        @staticmethod
-        def truetype(font, size):
-            return None
-    
-    Inky = MockInky
-    Image = MockImage
-    ImageDraw = MockImageDraw
-    ImageFont = MockImageFont
-
-def is_display_supported():
-    """Check if the display is supported on the current platform."""
-    return is_raspberry_pi
+def is_display_supported() -> bool:
+    """Checks if the display is supported on the current platform."""
+    supported = is_raspberry_pi and INKY_AVAILABLE
+    logger.info(f"Checking if display is supported. Is Raspberry Pi: {is_raspberry_pi}, Is Inky Lib Available: {INKY_AVAILABLE}. Result: {supported}")
+    return supported
 
 def initialize_display():
-    """Initialize the Inky display."""
+    """Initializes the eInk display if supported."""
+    logger.info("Attempting to initialize Inky display...")
     if not is_display_supported():
-        logger.warning("Display not supported on this platform")
+        # The reason (not Pi or Inky lib missing) would have been logged by is_display_supported or module init.
+        logger.warning("Display not supported on this platform or Inky library missing. Cannot initialize.")
         return None
-    
     try:
-        logger.info("Initializing Inky display...")
-        display = Inky('what', 'yellow')
-        logger.info("Successfully initialized Inky display")
+        logger.info("Using Inky auto-detection (inky.auto.auto) with verbose=True.")
+        # The auto() function tries to guess the display type.
+        # verbose=True can help debug which display it's trying.
+        # For InkyImpression, you might need to pass resolution, e.g. auto_inky_display(verbose=True, resolution=(600, 448))
+        display = auto_inky_display(verbose=True)
+        logger.info(f"Inky display auto-detected and initialized. Display object: {type(display)}")
+        
+        # ---- Example for specific Inky display (if auto-detection fails) ----
+        # If auto-detection fails, or you know your display type, initialize it directly.
+        # Common types: InkyPHAT (red, black, yellow), InkyWHAT (red, black, yellow)
+        # from inky import InkyPHAT
+        # Known colors for InkyPHAT/WHAT: "red", "black", "yellow" (check your model)
+        # Example for a red Inky pHAT:
+        # logger.info("Attempting to initialize InkyPHAT('red') specifically as an alternative.")
+        # display = InkyPHAT('red')
+        # logger.info("Successfully initialized InkyPHAT('red').")
+        # ---- End example ----
+
+        # Perform a basic operation to confirm it's working.
+        logger.info("Setting display border to white and calling show() as a test.")
+        display.set_border(display.WHITE) 
+        display.show() # This will clear the screen or show the current buffer contents.
+        logger.info("Display initialized and test (set_border, show) completed.")
         return display
     except Exception as e:
-        logger.error(f"Failed to initialize display: {e}")
+        logger.error(f"Failed to initialize Inky display during auto-detection or test: {e}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
         return None
 
 def create_lozenge(draw, x, y, width, height, item_name, quantity, font):

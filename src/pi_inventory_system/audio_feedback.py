@@ -1,24 +1,63 @@
 # Module for audio feedback
 
+import logging
+import traceback
+
+logger = logging.getLogger(__name__)
+
 # Handle optional libraries
 try:
     import pyttsx3
-    # tts_engine = pyttsx3.init() # Removed global init
+    engine = None
+
+    def _initialize_tts_engine():
+        global engine
+        if engine is None:
+            logger.info("Initializing TTS engine (pyttsx3)...")
+            try:
+                engine = pyttsx3.init()
+                # Optional: Log available voices and current voice properties
+                voices = engine.getProperty('voices')
+                if voices:
+                    logger.debug(f"Found {len(voices)} voices.")
+                    # for voice_idx, voice_obj in enumerate(voices):
+                    #     logger.debug(f"  Voice {voice_idx}: ID: {voice_obj.id}, Name: {voice_obj.name}, Langs: {voice_obj.languages}, Gender: {voice_obj.gender}, Age: {voice_obj.age}")
+                current_voice_id = engine.getProperty('voice')
+                current_rate = engine.getProperty('rate')
+                current_volume = engine.getProperty('volume')
+                logger.debug(f"Current TTS Voice ID: {current_voice_id}, Rate: {current_rate}, Volume: {current_volume}")
+                
+                # You can set properties here if needed, e.g.:
+                # engine.setProperty('rate', 150)  # Adjust speed
+                # engine.setProperty('voice', 'english_rp+f3') # Example voice ID, find yours by listing
+                
+                logger.info("TTS engine initialized successfully.")
+            except Exception as e:
+                logger.error(f"Failed to initialize pyttsx3 engine: {e}")
+                logger.error(traceback.format_exc())
+                engine = None # Ensure it's None if initialization failed
+        return engine is not None
+
     def output_confirmation(message: str = "") -> bool:
-        """Output a confirmation message.
+        """Output a confirmation message using text-to-speech."""
+        global engine
+        logger.info(f"Attempting to speak: '{message}'")
+        if not _initialize_tts_engine():
+            logger.error("TTS engine not initialized. Cannot speak message.")
+            return False
+
+        if not message: # Don't try to speak an empty message
+            logger.warning("output_confirmation called with an empty message.")
+            return False
         
-        Args:
-            message (str): Optional message to include in the confirmation
-            
-        Returns:
-            bool: True if confirmation was output successfully, False if message is empty
-        """
         try:
-            if not message:
-                return False
-            print(f"Confirmation: {message}")
+            engine.say(message)
+            engine.runAndWait()
+            logger.info("Successfully spoke message.")
             return True
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error during pyttsx3 say() or runAndWait(): {e}")
+            logger.error(traceback.format_exc())
             return False
 except ImportError:
     def output_confirmation(message: str = "") -> bool:
