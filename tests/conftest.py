@@ -3,7 +3,7 @@
 import os
 import pytest
 from unittest.mock import patch, MagicMock
-from pi_inventory_system.inventory_db import init_db, get_db, close_db, get_migrations_dir, run_migration
+from pi_inventory_system.database_manager import db_manager
 
 @pytest.fixture(autouse=True)
 def mock_config():
@@ -88,24 +88,15 @@ def mock_gpio_environment():
         yield mock_is_pi, mock_gpio
 
 @pytest.fixture
-def db_connection():
+def db_connection(tmp_path):
     """Set up test database connection and run migrations."""
-    # Initialize in-memory database
-    init_db(':memory:')
-    conn = get_db()
-    cursor = conn.cursor()
-
-    # Get migrations directory
-    migrations_dir = get_migrations_dir()
+    # Initialize a clean database for each test
+    db_manager.initialize(db_path=str(tmp_path / "test.db"))
     
-    # Run migrations in order
-    for migration_file in sorted(os.listdir(migrations_dir)):
-        if migration_file.endswith('.sql'):
-            migration_path = os.path.join(migrations_dir, migration_file)
-            run_migration(conn, migration_path)
-
-    yield conn, cursor
-    close_db()
+    yield db_manager.get_connection()
+    
+    # Clean up the database connection
+    db_manager.close()
 
 @pytest.fixture
 def mock_display():

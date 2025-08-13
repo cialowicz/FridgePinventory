@@ -8,7 +8,7 @@ import traceback
 logger = logging.getLogger(__name__)
 
 from math import ceil
-from pi_inventory_system.inventory_db import get_inventory
+from pi_inventory_system.database_manager import db_manager
 from pi_inventory_system.config_manager import config
 
 INKY_AVAILABLE = False
@@ -133,7 +133,7 @@ def display_inventory(display):
     
     try:
         # Get inventory data
-        inventory = get_inventory()
+        inventory = db_manager.get_inventory()
         if not inventory:
             logger.info("No inventory to display")
             return None

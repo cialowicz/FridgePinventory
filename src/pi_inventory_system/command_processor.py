@@ -5,22 +5,13 @@ import spacy
 import logging
 from typing import Tuple, Optional, Dict, List
 from word2number import w2n
-from .inventory_db import (
-    add_item,
-    remove_item,
-    set_item,
-    get_inventory,
-    undo_last_change
-)
+from .database_manager import db_manager
 from .item_normalizer import normalize_item_name
 from .inventory_item import InventoryItem
 from .config_manager import config
 
 # Load the English NLP model
 nlp = spacy.load("en_core_web_sm")
-
-# Command history for reference and undo
-_command_history: List[Tuple[str, InventoryItem]] = []
 
 def parse_quantity(text: str) -> Optional[int]:
     """Parse a quantity from text, handling both numeric and word forms."""
@@ -60,8 +51,8 @@ def interpret_command(command_text: str) -> Tuple[Optional[str], Optional[Invent
     
     # Handle repeat variations
     if any(word in command_text for word in ['repeat', 'again', 'same']):
-        if _command_history:
-            return _command_history[-1]
+        # NOTE: Repeat functionality is temporarily disabled pending state management refactor.
+        # The command history is now in the InventoryController.
         return None, None
     
     # Parse the command using spaCy for better NLP
@@ -118,41 +109,3 @@ def interpret_command(command_text: str) -> Tuple[Optional[str], Optional[Invent
         return command_type, InventoryItem(item_name=item_name, quantity=quantity)
     
     return None, None
-
-def execute_command(command_type: str, item: Optional[InventoryItem]) -> bool:
-    """
-    Execute a command based on its type and item.
-    Returns True if successful, False otherwise.
-    """
-    if command_type == "undo":
-        return undo_last_change()
-        
-    if not command_type or not item:
-        return False
-        
-    try:
-        # Execute the command
-        if command_type == "add":
-            add_item(item.item_name, item.quantity)
-        elif command_type == "remove":
-            remove_item(item.item_name, item.quantity)
-        elif command_type == "set":
-            set_item(item.item_name, item.quantity)
-        else:
-            return False
-            
-        # Add to command history
-        _command_history.append((command_type, item))
-        return True
-        
-    except Exception as e:
-        logging.error(f"Error executing command: {e}")
-        return False
-
-def get_command_history() -> List[Tuple[str, InventoryItem]]:
-    """Get the command history."""
-    return _command_history.copy()
-
-def clear_command_history():
-    """Clear the command history."""
-    _command_history.clear()

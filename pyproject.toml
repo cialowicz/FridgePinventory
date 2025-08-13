@@ -23,6 +23,7 @@ dependencies = [
     "playsound",
     "inky",
     "RPi.GPIO",
+    "pocketsphinx",
 ]
 
 [project.scripts]

@@ -309,7 +309,7 @@ class DatabaseManager:
     def get_inventory(self) -> List[tuple]:
         """Get the current inventory state."""
         cursor = self._connection.cursor()
-        cursor.execute("SELECT item_name, quantity FROM inventory WHERE quantity > 0")
+        cursor.execute("SELECT item_name, quantity FROM inventory")
         return [(row['item_name'], row['quantity']) for row in cursor.fetchall()]
 
 

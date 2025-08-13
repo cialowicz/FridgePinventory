@@ -2,13 +2,7 @@
 
 import pytest
 from unittest.mock import patch, MagicMock
-from pi_inventory_system.command_processor import (
-    interpret_command,
-    add_item,
-    remove_item,
-    set_item,
-    get_inventory
-)
+from pi_inventory_system.command_processor import interpret_command
 from pi_inventory_system.inventory_item import InventoryItem
 
 def test_add_command():

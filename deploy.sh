@@ -34,7 +34,6 @@ sudo apt install -y \
     libpulse-dev \
     flac \
     libjack-jackd2-dev \
-    python3-pyaudio \
     python3-pip \
     python3-venv \
     git \
@@ -42,8 +41,6 @@ sudo apt install -y \
     libtiff6 \
     fonts-dejavu \
     raspi-gpio \
-    python3-pil \
-    python3-pil.imagetk \
     python3-spidev
  
 # Verify espeak-ng installation
@@ -116,6 +113,16 @@ pip install numpy
 echo "DEBUG: numpy install command finished. Checking..."
 pip list | grep -i numpy || echo "DEBUG: numpy NOT found."
 
+echo "DEBUG: Attempting to install PyYAML..."
+pip install PyYAML
+echo "DEBUG: PyYAML install command finished. Checking..."
+pip list | grep -i PyYAML || echo "DEBUG: PyYAML NOT found."
+
+echo "DEBUG: Attempting to install playsound..."
+pip install playsound
+echo "DEBUG: playsound install command finished. Checking..."
+pip list | grep -i playsound || echo "DEBUG: playsound NOT found."
+
 echo "DEBUG: Attempting to install pocketsphinx..."
 pip install pocketsphinx
 echo "DEBUG: pocketsphinx install command finished. Checking..."
@@ -173,4 +180,4 @@ sudo systemctl enable fridgepinventory.service
 echo "Setup complete! The service will start automatically on boot."
 echo "To start the service now, run: sudo systemctl start fridgepinventory.service"
 echo "To check the status, run: sudo systemctl status fridgepinventory.service"
-echo "To view logs, run: journalctl -u fridgepinventory.service -f" 
+echo "To view logs, run: journalctl -u fridgepinventory.service -f"

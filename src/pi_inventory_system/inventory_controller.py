@@ -1,18 +1,10 @@
 import logging
 import time
 from typing import List, Tuple, Optional, Dict, Any
-from .inventory_db import (
-    init_db,
-    add_item,
-    remove_item,
-    set_item,
-    get_inventory,
-    get_pending_migrations,
-    get_db
-)
+from .database_manager import db_manager
 from .motion_sensor import detect_motion
 from .voice_recognition import recognize_speech_from_mic
-from .command_processor import interpret_command, execute_command
+from .command_processor import interpret_command
 from .display_manager import initialize_display, display_inventory
 from .audio_feedback import play_feedback_sound, output_confirmation
 from .inventory_item import InventoryItem
@@ -24,21 +16,12 @@ class InventoryController:
     def __init__(self):
         """Initialize the inventory controller."""
         self._initialize_system()
+        self._command_history: List[Tuple[str, InventoryItem]] = []
     
     def _initialize_system(self) -> None:
         """Initialize the database and display."""
-        # Initialize database and check for pending migrations
-        init_db()
-        conn = get_db()
-        pending_migrations = get_pending_migrations(conn)
-        if pending_migrations:
-            logging.info(f"Found {len(pending_migrations)} pending migrations")
-            for migration_file in pending_migrations:
-                logging.info(f"Running migration: {migration_file}")
-        else:
-            logging.info("No pending migrations found")
-        
-        # Initialize display
+        # Initialize database and display
+        db_manager.initialize()
         display = initialize_display()
         if display:
             logging.info("Display initialized successfully")
@@ -61,12 +44,12 @@ class InventoryController:
         if not command_type:
             return False, "Command not recognized. Please try again with a valid command."
             
-        success = execute_command(command_type, item)
+        success = self._execute_command(command_type, item)
         if not success:
             return False, "Command failed to execute. Please try again."
             
         # Get current inventory state for feedback
-        inventory = get_inventory()
+        inventory = db_manager.get_inventory()
         
         # Generate appropriate feedback message
         feedback = self._generate_feedback(command_type, item, inventory)
@@ -113,6 +96,36 @@ class InventoryController:
             return f"{item.item_name} has been removed from inventory."
         return f"{item.item_name} now has {current_quantity} in inventory."
     
+    def _execute_command(self, command_type: str, item: Optional[InventoryItem]) -> bool:
+        """
+        Execute a command based on its type and item.
+        Returns True if successful, False otherwise.
+        """
+        if command_type == "undo":
+            return db_manager.undo_last_change()
+            
+        if not command_type or not item:
+            return False
+            
+        try:
+            # Execute the command
+            if command_type == "add":
+                db_manager.add_item(item.item_name, item.quantity)
+            elif command_type == "remove":
+                db_manager.remove_item(item.item_name, item.quantity)
+            elif command_type == "set":
+                db_manager.set_item(item.item_name, item.quantity)
+            else:
+                return False
+                
+            # Add to command history
+            self._command_history.append((command_type, item))
+            return True
+            
+        except Exception as e:
+            logging.error(f"Error executing command: {e}")
+            return False
+
     def run_loop(self) -> None:
         """Run the main control loop."""
         while True:
@@ -132,4 +145,4 @@ class InventoryController:
             except Exception as e:
                 logging.error(f"Error: {e}")
                 play_feedback_sound(False)
-                output_confirmation("An error occurred.") 
+                output_confirmation("An error occurred.")
