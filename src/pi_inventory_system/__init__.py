@@ -5,17 +5,8 @@ Pi Inventory System package
 __version__ = "0.1.0"
 
 # Import and expose the main public API
-from .inventory_db import (
-    init_db,
-    get_db,
-    close_db,
-    add_item,
-    remove_item,
-    set_item,
-    get_inventory,
-    undo_last_change,
-    get_current_quantity
-)
+from .database_manager import db_manager
+from .inventory_controller import InventoryController
 
 from .display_manager import (
     initialize_display,
@@ -42,8 +33,7 @@ from .inventory_item import (
 )
 
 from .command_processor import (
-    interpret_command,
-    execute_command
+    interpret_command
 )
 
 from .audio_feedback import (
@@ -52,16 +42,9 @@ from .audio_feedback import (
 )
 
 __all__ = [
-    # Database functions
-    'init_db',
-    'get_db',
-    'close_db',
-    'add_item',
-    'remove_item',
-    'set_item',
-    'get_inventory',
-    'undo_last_change',
-    'get_current_quantity',
+    # Singletons and Controllers
+    'db_manager',
+    'InventoryController',
     
     # Display functions
     'initialize_display',
@@ -84,9 +67,8 @@ __all__ = [
     
     # Command processing functions
     'interpret_command',
-    'execute_command',
     
     # Audio feedback functions
     'play_feedback_sound',
     'output_confirmation'
-] 
+]
