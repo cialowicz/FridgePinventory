@@ -5,6 +5,59 @@ import pytest
 from unittest.mock import patch, MagicMock
 from pi_inventory_system.inventory_db import init_db, get_db, close_db, get_migrations_dir, run_migration
 
+@pytest.fixture(autouse=True)
+def mock_config():
+    """Mock configuration system for all tests."""
+    mock_config = MagicMock()
+    mock_config.get_database_path.return_value = ':memory:'
+    mock_config.get_font_config.return_value = {
+        'path': '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+        'size': 16,
+        'fallback_size': 12
+    }
+    mock_config.get_layout_config.return_value = {
+        'items_per_row': 2,
+        'lozenge_width_margin': 30,
+        'lozenge_height': 40,
+        'spacing': 10,
+        'margin': 10
+    }
+    mock_config.get_audio_config.return_value = {
+        'voice_recognition': {
+            'timeout': 5,
+            'phrase_time_limit': 10,
+            'engine': 'sphinx',
+            'device_index': None
+        },
+        'text_to_speech': {
+            'rate': 150,
+            'volume': 0.9,
+            'voice_id': None
+        },
+        'feedback_sounds': {
+            'success_sound': 'sounds/success.wav',
+            'error_sound': 'sounds/error.wav'
+        }
+    }
+    mock_config.get_command_config.return_value = {
+        'similarity_threshold': 0.8,
+        'special_quantities': {
+            'a': 1,
+            'an': 1,
+            'few': 3,
+            'several': 3
+        }
+    }
+    mock_config.get_system_config.return_value = {
+        'main_loop_delay': 0.1,
+        'log_level': 'INFO',
+        'enable_diagnostics': True
+    }
+    mock_config.get.return_value = {}
+    
+    with patch('pi_inventory_system.config_manager.config', mock_config):
+        yield mock_config
+
 @pytest.fixture
 def mock_raspberry_pi():
     """Mock Raspberry Pi environment for display and GPIO tests."""
@@ -60,4 +113,4 @@ def mock_display():
     mock_display = MagicMock()
     mock_display.WIDTH = 400
     mock_display.HEIGHT = 300
-    return mock_display 
+    return mock_display
