@@ -1,0 +1,65 @@
+# FridgePinventory Configuration File
+
+# Database Configuration
+database:
+  path: "inventory.db"  # Use file-based database instead of :memory:
+  
+# Display Configuration
+display:
+  font:
+    path: "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+    size: 16
+    fallback_size: 12
+  layout:
+    items_per_row: 2
+    lozenge_width_margin: 30
+    lozenge_height: 40
+    spacing: 10
+    margin: 10
+  colors:
+    background: "white"
+    text: "black"
+    border_normal: "black"
+    border_low_stock: "yellow"
+    low_stock_threshold: 2
+
+# Audio Configuration
+audio:
+  voice_recognition:
+    timeout: 5
+    phrase_time_limit: 10
+    engine: "sphinx"  # Options: sphinx, google
+    device_index: null  # null for default, or specific device index
+  text_to_speech:
+    rate: 150
+    volume: 0.9
+    voice_id: null  # null for default
+  feedback_sounds:
+    success_sound: "sounds/success.wav"
+    error_sound: "sounds/error.wav"
+
+# Command Processing Configuration
+commands:
+  similarity_threshold: 0.8
+  special_quantities:
+    a: 1
+    an: 1
+    few: 3
+    several: 3
+
+# System Configuration
+system:
+  main_loop_delay: 0.1  # seconds
+  log_level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  enable_diagnostics: true
+  
+# Hardware Configuration
+hardware:
+  motion_sensor:
+    enabled: true
+    pin: null  # GPIO pin number, null for auto-detect
+  display:
+    enabled: true
+    auto_detect: true
+    type: null  # null for auto-detect, or specific type like "InkyPHAT"
+    color: null  # null for auto-detect, or "red", "black", "yellow"

@@ -2,6 +2,7 @@
 
 from difflib import SequenceMatcher
 import re
+from .config_manager import config
 
 # Define item synonyms and base names
 ITEM_SYNONYMS = {
@@ -74,7 +75,8 @@ def normalize_item_name(item_name):
     
     # Then try fuzzy matching
     best_match = None
-    best_ratio = 0.8  # Minimum similarity threshold
+    command_config = config.get_command_config()
+    best_ratio = command_config.get('similarity_threshold', 0.8)  # Minimum similarity threshold from config
     
     for base_name, synonyms in ITEM_SYNONYMS.items():
         # Check against base name
@@ -97,4 +99,4 @@ def get_item_synonyms(item_name):
     item_name = normalize_item_name(item_name)
     if item_name in ITEM_SYNONYMS:
         return [item_name] + ITEM_SYNONYMS[item_name]
-    return [item_name] 
+    return [item_name]

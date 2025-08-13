@@ -2,6 +2,7 @@
 
 import logging
 import traceback
+from .config_manager import config
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +32,21 @@ try:
                 # engine.setProperty('rate', 150)  # Adjust speed
                 # engine.setProperty('voice', 'english_rp+f3') # Example voice ID, find yours by listing
                 
-                logger.info("TTS engine initialized successfully.")
+                # Apply configuration settings
+                audio_config = config.get_audio_config()
+                tts_config = audio_config.get('text_to_speech', {})
+                
+                rate = tts_config.get('rate', 150)
+                volume = tts_config.get('volume', 0.9)
+                voice_id = tts_config.get('voice_id')
+                
+                engine.setProperty('rate', rate)
+                engine.setProperty('volume', volume)
+                if voice_id:
+                    engine.setProperty('voice', voice_id)
+                    logger.info(f"Set TTS voice to: {voice_id}")
+                
+                logger.info(f"TTS engine initialized successfully with rate={rate}, volume={volume}")
             except Exception as e:
                 logger.error(f"Failed to initialize pyttsx3 engine: {e}")
                 logger.error(traceback.format_exc())
@@ -72,11 +87,18 @@ try:
     def play_feedback_sound(success):
         """Play an audio feedback sound if available, falls back to print."""
         try:
+            # Get configured sound file paths
+            audio_config = config.get_audio_config()
+            sound_config = audio_config.get('feedback_sounds', {})
+            
             if success:
-                playsound("sounds/success.wav")
+                sound_file = sound_config.get('success_sound', 'sounds/success.wav')
+                playsound(sound_file)
             else:
-                playsound("sounds/error.wav")
-        except:
+                sound_file = sound_config.get('error_sound', 'sounds/error.wav')
+                playsound(sound_file)
+        except Exception as e:
+            logger.warning(f"Failed to play sound: {e}")
             print("Success" if success else "Error")
         return success
 except ImportError:
@@ -119,4 +141,4 @@ def output_failure(message: str = "") -> bool:
             print("Failure")
         return True
     except Exception:
-        return False 
+        return False

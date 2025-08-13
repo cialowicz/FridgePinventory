@@ -9,6 +9,7 @@ logger = logging.getLogger(__name__)
 
 from math import ceil
 from pi_inventory_system.inventory_db import get_inventory
+from pi_inventory_system.config_manager import config
 
 INKY_AVAILABLE = False
 
@@ -99,11 +100,19 @@ def initialize_display():
 
 def create_lozenge(draw, x, y, width, height, item_name, quantity, font):
     """Create a lozenge shape with item name and quantity."""
+    # Get color configuration
+    color_config = config.get('display', 'colors', default={})
+    background_color = color_config.get('background', 'white')
+    text_color = color_config.get('text', 'black')
+    border_normal = color_config.get('border_normal', 'black')
+    border_low_stock = color_config.get('border_low_stock', 'yellow')
+    low_stock_threshold = color_config.get('low_stock_threshold', 2)
+    
     # Determine border color based on quantity
-    border_color = 'yellow' if quantity <= 2 else 'black'
+    border_color = border_low_stock if quantity <= low_stock_threshold else border_normal
     
     # Draw the lozenge shape
-    draw.rectangle([(x, y), (x + width, y + height)], fill='white', outline=border_color)
+    draw.rectangle([(x, y), (x + width, y + height)], fill=background_color, outline=border_color)
     
     # Add item name and quantity
     text = f"{item_name}: {quantity}"
@@ -114,7 +123,7 @@ def create_lozenge(draw, x, y, width, height, item_name, quantity, font):
     text_x = x + (width - text_width) // 2
     text_y = y + (height - text_height) // 2
     
-    draw.text((text_x, text_y), text, fill='black', font=font)
+    draw.text((text_x, text_y), text, fill=text_color, font=font)
 
 def display_inventory(display):
     """Display the current inventory on the Inky display."""
@@ -133,29 +142,42 @@ def display_inventory(display):
         image = Image.new("P", (display.WIDTH, display.HEIGHT))
         draw = ImageDraw.Draw(image)
         
-        # Load font
-        try:
-            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 16)  # Larger font for WHAT
-        except IOError:
-            logger.warning("Failed to load DejaVuSans-Bold font, using default")
-            font = ImageFont.load_default()
+        # Load font from configuration
+        font_config = config.get_font_config()
+        font_path = font_config.get('path', '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf')
+        font_size = font_config.get('size', 16)
+        fallback_size = font_config.get('fallback_size', 12)
         
-        # Calculate layout
-        items_per_row = 2  # WHAT is wider, so we can fit two items per row
-        lozenge_width = (display.WIDTH - 30) // items_per_row  # Leave margins
-        lozenge_height = 40  # Taller for WHAT
-        spacing = 10  # More spacing for WHAT
+        try:
+            font = ImageFont.truetype(font_path, font_size)
+        except IOError:
+            logger.warning(f"Failed to load font from {font_path}, trying fallback size")
+            try:
+                font = ImageFont.truetype(font_path, fallback_size)
+            except IOError:
+                logger.warning("Failed to load configured font, using default")
+                font = ImageFont.load_default()
+        
+        # Calculate layout from configuration
+        layout_config = config.get_layout_config()
+        items_per_row = layout_config.get('items_per_row', 2)
+        lozenge_width_margin = layout_config.get('lozenge_width_margin', 30)
+        lozenge_height = layout_config.get('lozenge_height', 40)
+        spacing = layout_config.get('spacing', 10)
+        margin = layout_config.get('margin', 10)
+        
+        lozenge_width = (display.WIDTH - lozenge_width_margin) // items_per_row
         
         # Draw lozenges
-        for i, item in enumerate(inventory):
+        for i, (item_name, quantity) in enumerate(inventory):
             row = i // items_per_row
             col = i % items_per_row
             
-            x = 10 + col * (lozenge_width + spacing)
-            y = 10 + row * (lozenge_height + spacing)
+            x = margin + col * (lozenge_width + spacing)
+            y = margin + row * (lozenge_height + spacing)
             
             create_lozenge(draw, x, y, lozenge_width, lozenge_height,
-                          item.item_name, item.quantity, font)
+                          item_name, quantity, font)
         
         # Update display
         display.set_image(image)

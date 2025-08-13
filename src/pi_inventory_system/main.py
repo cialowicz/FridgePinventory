@@ -1,10 +1,15 @@
 import logging
 import os
 
-# Setup basic logging
-# This should be one of the very first things your application does.
+# Import configuration first to get log level
+from pi_inventory_system.config_manager import config
+
+# Setup basic logging with configurable level
+system_config = config.get_system_config()
+log_level = getattr(logging, system_config.get('log_level', 'INFO').upper(), logging.INFO)
+
 logging.basicConfig(
-    level=logging.DEBUG,  # Changed to DEBUG for more verbosity during troubleshooting
+    level=log_level,
     format='%(asctime)s - %(name)s - %(levelname)s - [%(pathname)s:%(lineno)d] - %(message)s',
     handlers=[
         logging.StreamHandler() # This will go to journald via systemd
@@ -23,6 +28,7 @@ from pi_inventory_system.motion_sensor import detect_motion, cleanup
 from pi_inventory_system.voice_recognition import recognize_speech_from_mic
 from pi_inventory_system.command_processor import interpret_command, execute_command
 from pi_inventory_system.inventory_controller import InventoryController
+from pi_inventory_system.config_manager import config
 import time
 
 def main():
@@ -70,8 +76,10 @@ def main():
                     # Update display
                     display_inventory(display)
             
-            # Small delay to prevent CPU hogging
-            time.sleep(0.1)
+            # Small delay to prevent CPU hogging (configurable)
+            system_config = config.get_system_config()
+            delay = system_config.get('main_loop_delay', 0.1)
+            time.sleep(delay)
             
     except KeyboardInterrupt:
         logger.info("Shutting down...")

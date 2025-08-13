@@ -14,20 +14,13 @@ from .inventory_db import (
 )
 from .item_normalizer import normalize_item_name
 from .inventory_item import InventoryItem
+from .config_manager import config
 
 # Load the English NLP model
 nlp = spacy.load("en_core_web_sm")
 
 # Command history for reference and undo
 _command_history: List[Tuple[str, InventoryItem]] = []
-
-# Special quantity words that aren't handled by word2number
-SPECIAL_QUANTITIES = {
-    'a': 1,
-    'an': 1,
-    'few': 3,
-    'several': 3
-}
 
 def parse_quantity(text: str) -> Optional[int]:
     """Parse a quantity from text, handling both numeric and word forms."""
@@ -37,9 +30,13 @@ def parse_quantity(text: str) -> Optional[int]:
     except ValueError:
         # Try word to number conversion
         try:
+            # Get special quantities from configuration
+            command_config = config.get_command_config()
+            special_quantities = command_config.get('special_quantities', {})
+            
             # First try our special quantities
-            if text.lower() in SPECIAL_QUANTITIES:
-                return SPECIAL_QUANTITIES[text.lower()]
+            if text.lower() in special_quantities:
+                return special_quantities[text.lower()]
             # Then try word2number for other number words
             return w2n.word_to_num(text)
         except ValueError:

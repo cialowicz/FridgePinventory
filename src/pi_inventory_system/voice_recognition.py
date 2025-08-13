@@ -4,6 +4,7 @@ import speech_recognition as sr
 import logging
 import traceback
 import pyaudio # Explicitly import pyaudio to access its methods for device listing
+from .config_manager import config
 
 logger = logging.getLogger(__name__)
 
@@ -38,10 +39,18 @@ def _initialize_audio_components():
             # Common settings: device_index (if not default), sample_rate, chunk_size
             # If you use a specific device_index, log it here.
             logger.info("Initializing sr.Microphone(). This may take a moment...")
-            # You might need to specify a device_index if the default is not correct:
-            # microphone = sr.Microphone(device_index=YOUR_DEVICE_INDEX, sample_rate=16000) 
-            # If unsure, sr.Microphone() tries to use the default system microphone.
-            microphone = sr.Microphone() 
+            # Get audio configuration
+            audio_config = config.get_audio_config()
+            voice_config = audio_config.get('voice_recognition', {})
+            device_index = voice_config.get('device_index')
+            
+            # Initialize microphone with configured device index if specified
+            if device_index is not None:
+                microphone = sr.Microphone(device_index=device_index)
+                logger.info(f"Using configured microphone device index: {device_index}")
+            else:
+                microphone = sr.Microphone()
+                logger.info("Using default system microphone") 
             logger.info("sr.Microphone() initialized.")
             # Test opening the stream briefly to catch immediate errors
             logger.debug("Adjusting for ambient noise...")
@@ -92,16 +101,29 @@ def recognize_speech_from_mic():
         return "Error: Microphone not initialized."
 
     logger.info("Listening for command...")
+    
+    # Get audio configuration for timeouts and engine
+    audio_config = config.get_audio_config()
+    voice_config = audio_config.get('voice_recognition', {})
+    timeout = voice_config.get('timeout', 5)
+    phrase_time_limit = voice_config.get('phrase_time_limit', 10)
+    engine = voice_config.get('engine', 'sphinx')
+    
     try:
         with microphone as source:
             # recognizer.adjust_for_ambient_noise(source) # Moved to init, or can be done less frequently
             logger.debug("Microphone source opened, calling recognizer.listen().")
-            audio_data = recognizer.listen(source, timeout=5, phrase_time_limit=10) # Added timeout
+            audio_data = recognizer.listen(source, timeout=timeout, phrase_time_limit=phrase_time_limit)
         logger.info("Audio captured, attempting recognition...")
-        # Using PocketSphinx for offline recognition by default
-        # Other options: recognize_google, recognize_bing, etc. (require internet and API keys)
-        command = recognizer.recognize_sphinx(audio_data) # Default to sphinx for offline
-        # command = recognizer.recognize_google(audio_data) # Example for Google Web Speech API
+        
+        # Use configured recognition engine
+        if engine.lower() == 'google':
+            command = recognizer.recognize_google(audio_data)
+            logger.info("Using Google Web Speech API for recognition")
+        else:
+            # Default to sphinx for offline recognition
+            command = recognizer.recognize_sphinx(audio_data)
+            logger.info("Using PocketSphinx for offline recognition")
         logger.info(f"Voice command recognized: {command}")
         return command.lower()
     except sr.WaitTimeoutError:

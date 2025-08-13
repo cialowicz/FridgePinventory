@@ -18,10 +18,11 @@ dependencies = [
     "word2number",
     "pyttsx3",
     "numpy",
+    "PyYAML",
 ]
 
 [project.scripts]
 fridgepinventory = "pi_inventory_system.main:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/pi_inventory_system"] 
+packages = ["src/pi_inventory_system"]
