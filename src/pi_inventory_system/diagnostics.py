@@ -53,7 +53,7 @@ def run_startup_diagnostics() -> Tuple[bool, bool, bool]:
     # Check audio
     try:
         # Play success sound
-        if play_feedback_sound("success"):
+        if play_feedback_sound(True):
             logging.info("Success sound played successfully")
             
             # Initialize text-to-speech
@@ -67,16 +67,16 @@ def run_startup_diagnostics() -> Tuple[bool, bool, bool]:
             if command and "test" in command.lower():
                 audio_ok = True
                 logging.info("Microphone test successful")
-                play_feedback_sound("success")
+                play_feedback_sound(True)
             else:
                 logging.error("Microphone test failed")
-                play_feedback_sound("error")
+                play_feedback_sound(False)
         else:
             logging.error("Failed to play success sound")
-            play_feedback_sound("error")
+            play_feedback_sound(False)
     except Exception as e:
         logging.error(f"Audio diagnostics error: {e}")
-        play_feedback_sound("error")
+        play_feedback_sound(False)
     
     # Final status display
     if display_ok:
@@ -86,4 +86,4 @@ def run_startup_diagnostics() -> Tuple[bool, bool, bool]:
         status_text += f"Audio: {'OK' if audio_ok else 'FAIL'}"
         display_text(display, status_text)
     
-    return display_ok, motion_sensor_ok, audio_ok 
+    return display_ok, motion_sensor_ok, audio_ok

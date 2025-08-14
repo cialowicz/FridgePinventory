@@ -8,9 +8,13 @@ from pi_inventory_system.inventory_item import InventoryItem
 @pytest.fixture
 def controller():
     """Create a controller instance with mocked dependencies."""
-    with patch('pi_inventory_system.inventory_controller.init_db'), \
-         patch('pi_inventory_system.inventory_controller.initialize_display'):
-        return InventoryController()
+    with patch('pi_inventory_system.inventory_controller.db_manager') as mock_db_manager, \
+         patch('pi_inventory_system.inventory_controller.initialize_display') as mock_init_display:
+        controller_instance = InventoryController()
+        # attach mocks to instance for easy access in tests
+        controller_instance.db = mock_db_manager 
+        controller_instance.display = mock_init_display
+        return controller_instance
 
 
 def test_process_command_empty_command(controller):
@@ -32,10 +36,9 @@ def test_process_command_invalid_command(controller):
 def test_process_command_failed_execution(controller):
     """Test processing a command that fails to execute."""
     item = InventoryItem(item_name="chicken", quantity=1)
+    controller.db.add_item.return_value = False  # Simulate failure
     with patch('pi_inventory_system.inventory_controller.interpret_command',
-              return_value=("add", item)), \
-         patch('pi_inventory_system.inventory_controller.execute_command',
-              return_value=False):
+              return_value=("add", item)):
         success, feedback = controller.process_command("add chicken")
         assert not success
         assert feedback == "Command failed to execute. Please try again."
@@ -44,60 +47,59 @@ def test_process_command_failed_execution(controller):
 def test_process_command_successful_add(controller):
     """Test processing a successful add command."""
     item = InventoryItem(item_name="chicken", quantity=1)
+    controller.db.add_item.return_value = True
+    controller.db.get_current_quantity.return_value = 1
+
     with patch('pi_inventory_system.inventory_controller.interpret_command',
               return_value=("add", item)), \
-         patch('pi_inventory_system.inventory_controller.execute_command',
-              return_value=True), \
-         patch('pi_inventory_system.inventory_controller.get_inventory',
-              return_value=[("chicken", 1)]), \
          patch('pi_inventory_system.inventory_controller.display_inventory'):
         success, feedback = controller.process_command("add chicken")
         assert success
         assert feedback == "chicken now has 1 in inventory."
+        controller.db.add_item.assert_called_with(item.item_name, item.quantity)
 
 
 def test_process_command_successful_remove(controller):
     """Test processing a successful remove command."""
     item = InventoryItem(item_name="chicken", quantity=1)
+    controller.db.remove_item.return_value = True
+    controller.db.get_current_quantity.return_value = 0
+
     with patch('pi_inventory_system.inventory_controller.interpret_command',
               return_value=("remove", item)), \
-         patch('pi_inventory_system.inventory_controller.execute_command',
-              return_value=True), \
-         patch('pi_inventory_system.inventory_controller.get_inventory',
-              return_value=[]), \
          patch('pi_inventory_system.inventory_controller.display_inventory'):
         success, feedback = controller.process_command("remove chicken")
         assert success
         assert feedback == "chicken has been removed from inventory."
+        controller.db.remove_item.assert_called_with(item.item_name, item.quantity)
 
 
 def test_process_command_successful_undo(controller):
     """Test processing a successful undo command."""
+    controller.db.undo_last_change.return_value = ("chicken", 2)
+
     with patch('pi_inventory_system.inventory_controller.interpret_command',
-              return_value=("undo", "chicken")), \
-         patch('pi_inventory_system.inventory_controller.execute_command',
-              return_value=True), \
-         patch('pi_inventory_system.inventory_controller.get_inventory',
-              return_value=[("chicken", 2)]), \
+              return_value=("undo", None)), \
          patch('pi_inventory_system.inventory_controller.display_inventory'):
         success, feedback = controller.process_command("undo")
         assert success
         assert feedback == "Last change has been undone. chicken now has 2 in inventory."
+        controller.db.undo_last_change.assert_called_once()
 
 
 def test_process_command_successful_set(controller):
     """Test processing a successful set command."""
     item = InventoryItem(item_name="chicken", quantity=5)
+    controller.db.set_item.return_value = True
+    controller.db.get_current_quantity.return_value = 5
+
     with patch('pi_inventory_system.inventory_controller.interpret_command',
               return_value=("set", item)), \
-         patch('pi_inventory_system.inventory_controller.execute_command',
-              return_value=True), \
-         patch('pi_inventory_system.inventory_controller.get_inventory',
-              return_value=[("chicken", 5)]), \
          patch('pi_inventory_system.inventory_controller.display_inventory'):
         success, feedback = controller.process_command("set chicken to 5")
         assert success
         assert feedback == "chicken now has 5 in inventory."
+        controller.db.set_item.assert_called_with(item.item_name, item.quantity)
 
 
 @pytest.mark.skip(reason="Loop-related tests are not critical and can be flaky")
@@ -109,4 +111,4 @@ def test_run_loop_keyboard_interrupt(controller):
 @pytest.mark.skip(reason="Loop-related tests are not critical and can be flaky")
 def test_run_loop_exception(controller):
     """Test handling general exception in run loop."""
-    pass 
+    pass

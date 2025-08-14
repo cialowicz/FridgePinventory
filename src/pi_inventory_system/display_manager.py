@@ -205,12 +205,21 @@ def display_text(display, text, font_size=16):  # Larger default font size for W
         image = Image.new("P", (display.WIDTH, display.HEIGHT))
         draw = ImageDraw.Draw(image)
         
-        # Load font
+        # Load font using configuration (same approach as display_inventory)
+        font_config = config.get_font_config()
+        font_path = font_config.get('path', '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf')
+        cfg_size = font_config.get('size', font_size)
+        fallback_size = font_config.get('fallback_size', 12)
+        desired_size = font_size or cfg_size
         try:
-            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
+            font = ImageFont.truetype(font_path, desired_size)
         except IOError:
-            logger.warning("Failed to load DejaVuSans-Bold font, using default")
-            font = ImageFont.load_default()
+            logger.warning(f"Failed to load font from {font_path}, trying fallback size")
+            try:
+                font = ImageFont.truetype(font_path, fallback_size)
+            except IOError:
+                logger.warning("Failed to load configured font, using default")
+                font = ImageFont.load_default()
         
         # Calculate text position
         text_bbox = draw.textbbox((0, 0), text, font=font)

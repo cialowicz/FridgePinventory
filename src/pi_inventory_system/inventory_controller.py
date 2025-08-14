@@ -1,12 +1,8 @@
 import logging
-import time
-from typing import List, Tuple, Optional, Dict, Any
+from typing import List, Tuple, Optional
 from .database_manager import db_manager
-from .motion_sensor import detect_motion
-from .voice_recognition import recognize_speech_from_mic
 from .command_processor import interpret_command
 from .display_manager import initialize_display, display_inventory
-from .audio_feedback import play_feedback_sound, output_confirmation
 from .inventory_item import InventoryItem
 
 
@@ -22,8 +18,8 @@ class InventoryController:
         """Initialize the database and display."""
         # Initialize database and display
         db_manager.initialize()
-        display = initialize_display()
-        if display:
+        self.display = initialize_display()
+        if self.display:
             logging.info("Display initialized successfully")
         else:
             logging.warning("Display initialization failed or not supported")
@@ -55,7 +51,7 @@ class InventoryController:
         feedback = self._generate_feedback(command_type, item, inventory)
         
         # Update display
-        display_inventory(inventory)
+        display_inventory(self.display)
         
         return True, feedback
     
@@ -125,24 +121,3 @@ class InventoryController:
         except Exception as e:
             logging.error(f"Error executing command: {e}")
             return False
-
-    def run_loop(self) -> None:
-        """Run the main control loop."""
-        while True:
-            try:
-                if detect_motion():
-                    command = recognize_speech_from_mic()
-                    success, feedback = self.process_command(command)
-                    play_feedback_sound(success)
-                    output_confirmation(feedback)
-                
-                # Small delay to prevent CPU overuse
-                time.sleep(0.1)
-                
-            except KeyboardInterrupt:
-                logging.info("Shutting down...")
-                break
-            except Exception as e:
-                logging.error(f"Error: {e}")
-                play_feedback_sound(False)
-                output_confirmation("An error occurred.")

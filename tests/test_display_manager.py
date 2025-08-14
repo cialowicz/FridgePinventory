@@ -1,6 +1,9 @@
 # Tests for display manager module
 
 import pytest
+from pi_inventory_system.display_manager import INKY_AVAILABLE
+
+pytestmark = pytest.mark.skipif(not INKY_AVAILABLE, reason="Inky library not available")
 from unittest.mock import patch, MagicMock
 import pi_inventory_system.display_manager
 

@@ -1,6 +1,14 @@
 # Tests for audio feedback module
 
 import pytest
+
+try:
+    import playsound
+    PLAYSOUND_AVAILABLE = True
+except ImportError:
+    PLAYSOUND_AVAILABLE = False
+
+pytestmark = pytest.mark.skipif(not PLAYSOUND_AVAILABLE, reason="playsound library not available")
 from unittest.mock import patch
 from pi_inventory_system.audio_feedback import play_feedback_sound, output_confirmation
 

@@ -3,15 +3,20 @@
 import speech_recognition as sr
 import logging
 import traceback
-import pyaudio # Explicitly import pyaudio to access its methods for device listing
 from .config_manager import config
 
 logger = logging.getLogger(__name__)
 
+# Optional PyAudio dependency (used for device listing); not required for basic mic usage
+try:
+    import pyaudio  # type: ignore
+except Exception:
+    pyaudio = None  # type: ignore
+
 # Global recognizer and microphone instances
 recognizer = None
 microphone = None
-pyaudio_instance = None # Keep a reference to PyAudio instance for proper termination
+pyaudio_instance = None  # Keep a reference to PyAudio instance for optional device logging
 
 def _initialize_audio_components():
     global recognizer, microphone, pyaudio_instance
@@ -21,19 +26,17 @@ def _initialize_audio_components():
         logger.debug("Initializing sr.Recognizer().")
         recognizer = sr.Recognizer()
     
-    if pyaudio_instance is None:
+    if pyaudio_instance is None and pyaudio is not None:
         try:
-            logger.debug("Initializing pyaudio.PyAudio() instance.")
+            logger.debug("Initializing pyaudio.PyAudio() instance for optional device logging.")
             pyaudio_instance = pyaudio.PyAudio()
-            logger.info("PyAudio instance created successfully.")
-            _log_audio_devices(pyaudio_instance) # Log available devices
+            _log_audio_devices(pyaudio_instance)  # Best-effort logging; not required
         except Exception as e:
-            logger.error(f"Failed to initialize PyAudio: {e}")
-            logger.error(traceback.format_exc())
-            pyaudio_instance = None # Ensure it's None if failed
-            return False # Cannot proceed without PyAudio
+            logger.warning(f"PyAudio initialization failed or unavailable: {e}")
+            logger.debug(traceback.format_exc())
+            pyaudio_instance = None  # Non-fatal
 
-    if microphone is None and pyaudio_instance is not None:
+    if microphone is None:
         try:
             # Log settings before attempting to open microphone
             # Common settings: device_index (if not default), sample_rate, chunk_size
@@ -62,7 +65,7 @@ def _initialize_audio_components():
             logger.error(traceback.format_exc())
             microphone = None # Ensure it's None if failed
             return False
-    return recognizer is not None and microphone is not None and pyaudio_instance is not None
+    return recognizer is not None and microphone is not None
 
 def _log_audio_devices(pa_instance):
     if not pa_instance:
@@ -98,7 +101,7 @@ def recognize_speech_from_mic():
 
     if not _initialize_audio_components():
         logger.error("Audio components not initialized. Cannot recognize speech.")
-        return "Error: Microphone not initialized."
+        return None
 
     logger.info("Listening for command...")
     
@@ -128,18 +131,18 @@ def recognize_speech_from_mic():
         return command.lower()
     except sr.WaitTimeoutError:
         logger.warning("No speech detected within timeout period.")
-        return ""
+        return None
     except sr.UnknownValueError:
         logger.warning("Speech Recognition could not understand audio.")
-        return ""
+        return None
     except sr.RequestError as e:
         logger.error(f"Speech Recognition service request failed: {e}")
         logger.error(traceback.format_exc())
-        return f"Error: SR request failed - {e}"
+        return None
     except Exception as e:
         logger.error(f"An unexpected error occurred during speech recognition: {e}")
         logger.error(traceback.format_exc())
-        return f"Error: {e}"
+        return None
 
 # Optional: Function to clean up PyAudio if needed, though SpeechRecognition usually handles it.
 # def cleanup_pyaudio():

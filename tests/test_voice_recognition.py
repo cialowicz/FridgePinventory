@@ -7,7 +7,7 @@ from pi_inventory_system.voice_recognition import recognize_speech_from_mic
 def test_successful_recognition():
     """Test successful speech recognition."""
     mock_recognizer = MagicMock()
-    mock_recognizer.recognize_google.return_value = "add chicken"
+    mock_recognizer.recognize_sphinx.return_value = "add chicken"
     
     with patch('pi_inventory_system.voice_recognition.sr.Recognizer', return_value=mock_recognizer), \
          patch('pi_inventory_system.voice_recognition.sr.Microphone') as mock_mic:
@@ -17,7 +17,7 @@ def test_successful_recognition():
 def test_recognition_error():
     """Test handling recognition error."""
     mock_recognizer = MagicMock()
-    mock_recognizer.recognize_google.side_effect = Exception("Recognition error")
+    mock_recognizer.recognize_sphinx.side_effect = Exception("Recognition error")
     
     with patch('pi_inventory_system.voice_recognition.sr.Recognizer', return_value=mock_recognizer), \
          patch('pi_inventory_system.voice_recognition.sr.Microphone') as mock_mic:

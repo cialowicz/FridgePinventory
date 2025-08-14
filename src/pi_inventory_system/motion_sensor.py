@@ -5,6 +5,7 @@ import logging
 import time
 import subprocess
 from typing import Optional
+from .config_manager import config
 
 # GPIO pin for motion sensor
 MOTION_SENSOR_PIN = 4
@@ -67,9 +68,25 @@ except ImportError:
     logging.error("Failed to import RPi.GPIO. Using mock GPIO.")
     GPIO = MockGPIO()
 
+def _get_motion_config():
+    """Safely retrieve motion sensor config as a plain dict."""
+    try:
+        hw = config.get_hardware_config()
+    except Exception:
+        hw = {}
+    # Ensure we have a dict (tests may patch config with MagicMock)
+    if not isinstance(hw, dict):
+        hw = {}
+    motion = hw.get('motion_sensor', {})
+    if not isinstance(motion, dict):
+        motion = {}
+    return motion
+
 def is_motion_sensor_supported() -> bool:
-    """Check if motion sensor functionality is available."""
-    return _is_raspberry_pi()
+    """Check if motion sensor functionality is available and enabled by config."""
+    cfg = _get_motion_config()
+    enabled = cfg.get('enabled', True)
+    return enabled and _is_raspberry_pi()
 
 def _read_pinctrl(pin: int) -> bool:
     """Read GPIO pin state using pinctrl."""
@@ -92,16 +109,20 @@ def detect_motion() -> bool:
         return False
         
     try:
+        # Use configured pin if provided, else default constant
+        cfg = _get_motion_config()
+        pin = cfg.get('pin') if cfg.get('pin') is not None else MOTION_SENSOR_PIN
+
         if _is_raspberry_pi_5():
             # Use pinctrl for Pi 5
-            return _read_pinctrl(MOTION_SENSOR_PIN)
+            return _read_pinctrl(pin)
         else:
             # Use RPi.GPIO for older Pis
             if not _gpio_initialized:
                 GPIO.setmode(GPIO.BCM)
-                GPIO.setup(MOTION_SENSOR_PIN, GPIO.IN)
+                GPIO.setup(pin, GPIO.IN)
                 _gpio_initialized = True
-            return bool(GPIO.input(MOTION_SENSOR_PIN))
+            return bool(GPIO.input(pin))
         
     except Exception as e:
         logging.error(f"Error detecting motion: {e}")

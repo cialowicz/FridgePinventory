@@ -1,7 +1,6 @@
 # Module for processing commands
 
 import re
-import spacy
 import logging
 from typing import Tuple, Optional, Dict, List
 from word2number import w2n
@@ -10,8 +9,28 @@ from .item_normalizer import normalize_item_name
 from .inventory_item import InventoryItem
 from .config_manager import config
 
-# Load the English NLP model
-nlp = spacy.load("en_core_web_sm")
+# Make spaCy optional and lazy-load the model when first needed
+try:
+    import spacy  # type: ignore
+except Exception:
+    spacy = None  # type: ignore
+
+nlp = None
+
+def _ensure_nlp():
+    """Attempt to load spaCy model once; return the model or None on failure."""
+    global nlp
+    if nlp is not None:
+        return nlp
+    if spacy is None:
+        return None
+    try:
+        nlp = spacy.load("en_core_web_sm")  # Requires separate model install
+        return nlp
+    except Exception as e:
+        logging.warning(f"spaCy model not available, falling back to rule-based parsing: {e}")
+        nlp = None
+        return None
 
 def parse_quantity(text: str) -> Optional[int]:
     """Parse a quantity from text, handling both numeric and word forms."""
@@ -55,17 +74,24 @@ def interpret_command(command_text: str) -> Tuple[Optional[str], Optional[Invent
         # The command history is now in the InventoryController.
         return None, None
     
-    # Parse the command using spaCy for better NLP
-    doc = nlp(command_text)
-    
-    # Extract command type
+    # Determine command type using spaCy if available, otherwise simple regex fallback
     command_type = None
-    if any(token.lemma_ in ['add', 'put', 'place'] for token in doc):
-        command_type = "add"
-    elif any(token.lemma_ in ['remove', 'take', 'delete'] for token in doc):
-        command_type = "remove"
-    elif any(token.lemma_ in ['set', 'change', 'update'] for token in doc):
-        command_type = "set"
+    model = _ensure_nlp()
+    if model is not None:
+        doc = model(command_text)
+        if any(token.lemma_ in ['add', 'put', 'place'] for token in doc):
+            command_type = "add"
+        elif any(token.lemma_ in ['remove', 'take', 'delete'] for token in doc):
+            command_type = "remove"
+        elif any(token.lemma_ in ['set', 'change', 'update'] for token in doc):
+            command_type = "set"
+    else:
+        if re.search(r"\b(add|put|place)\b", command_text):
+            command_type = "add"
+        elif re.search(r"\b(remove|take|delete)\b", command_text):
+            command_type = "remove"
+        elif re.search(r"\b(set|change|update)\b", command_text):
+            command_type = "set"
     
     if not command_type:
         return None, None
