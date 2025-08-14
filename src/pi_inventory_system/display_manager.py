@@ -15,11 +15,20 @@ INKY_AVAILABLE = False
 
 def _is_raspberry_pi():
     """Check if we're running on a Raspberry Pi."""
+    # Get platform configuration
+    platform_config = config.get_platform_config()
+    model_file = platform_config.get('raspberry_pi_model_file', '/proc/device-tree/model')
+    required_string = platform_config.get('required_pi_string', 'raspberry pi')
+    
     # Check for Raspberry Pi specific files
-    if os.path.exists('/proc/device-tree/model'):
-        with open('/proc/device-tree/model', 'r') as f:
-            model = f.read().lower()
-            return 'raspberry pi' in model
+    if os.path.exists(model_file):
+        try:
+            with open(model_file, 'r') as f:
+                model = f.read().lower()
+                return required_string in model
+        except (IOError, OSError) as e:
+            logger.warning(f"Could not read platform model file {model_file}: {e}")
+            return False
     return False
 
 # Initialize display support

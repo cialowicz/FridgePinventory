@@ -63,3 +63,21 @@ hardware:
     auto_detect: true
     type: null  # null for auto-detect, or specific type like "InkyPHAT"
     color: null  # null for auto-detect, or "red", "black", "yellow"
+
+# Natural Language Processing Configuration
+nlp:
+  spacy_model: "en_core_web_sm"  # spaCy model name
+  enable_spacy: true  # Whether to use spaCy for command processing
+
+# Database Configuration (Advanced)
+database_advanced:
+  timeout: 30.0  # Connection timeout in seconds
+  wal_mode: true  # Enable WAL mode for better concurrency
+  cache_size: 1000  # SQLite cache size
+  synchronous_mode: "NORMAL"  # NORMAL, FULL, or OFF
+  temp_store: "memory"  # memory or file
+
+# Platform Detection
+platform:
+  raspberry_pi_model_file: "/proc/device-tree/model"  # File to check for Pi detection
+  required_pi_string: "raspberry pi"  # String that must be in model file

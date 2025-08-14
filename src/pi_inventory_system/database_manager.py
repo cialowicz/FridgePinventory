@@ -1,12 +1,14 @@
-# Database manager module - replaces global state management
+# Database manager module - thread-safe database operations with proper resource management
 
 import sqlite3
 import os
 import glob
 import logging
-from typing import List, Optional
+import threading
+from typing import List, Optional, ContextManager
 from datetime import datetime
 from pathlib import Path
+from contextlib import contextmanager
 from .config_manager import config
 from .inventory_item import InventoryItem
 
@@ -14,92 +16,108 @@ logger = logging.getLogger(__name__)
 
 
 class DatabaseManager:
-    """Singleton database manager for the FridgePinventory system."""
+    """Thread-safe database manager for the FridgePinventory system."""
     
-    _instance = None
+    def __init__(self, db_path: Optional[str] = None):
+        """Initialize the database manager.
+        
+        Args:
+            db_path: Path to the database file. If None, uses config default.
+        """
+        self._db_path = db_path or config.get_database_path()
+        self._lock = threading.RLock()
+        self._initialized = False
+        self.initialize()
     
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super(DatabaseManager, cls).__new__(cls)
-            cls._instance._connection = None
-            cls._instance._initialized = False
-        return cls._instance
-    
-    def __init__(self):
-        if not self._initialized:
-            self.initialize()
-    
-    def initialize(self, db_path: Optional[str] = None) -> None:
+    def initialize(self) -> None:
         """Initialize the database with all pending migrations."""
-        if self._connection is not None:
-            return
-        
-        # Use configured database path if not provided
-        if db_path is None:
-            db_path = config.get_database_path()
-        
-        try:
-            self._connection = sqlite3.connect(db_path, check_same_thread=False)
-            self._connection.row_factory = sqlite3.Row
+        with self._lock:
+            if self._initialized:
+                return
             
-            # Create migrations table if it doesn't exist
-            cursor = self._connection.cursor()
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS migrations (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    migration_name TEXT NOT NULL UNIQUE,
-                    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            self._connection.commit()
-            
-            # Run all pending migrations
-            pending_migrations = self.get_pending_migrations()
-            if pending_migrations:
-                logger.info(f"Found {len(pending_migrations)} pending migrations")
-                for migration_file in pending_migrations:
-                    self.run_migration(migration_file)
-            else:
-                logger.info("No pending migrations found")
-            
-            self._initialized = True
-            logger.info(f"Database initialized successfully at {db_path}")
+            try:
+                # Test connection first
+                with self._get_connection() as conn:
+                    # Create migrations table if it doesn't exist
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        CREATE TABLE IF NOT EXISTS migrations (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            migration_name TEXT NOT NULL UNIQUE,
+                            applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        )
+                    """)
+                    conn.commit()
+                    
+                    # Run all pending migrations
+                    pending_migrations = self._get_pending_migrations(conn)
+                    if pending_migrations:
+                        logger.info(f"Found {len(pending_migrations)} pending migrations")
+                        for migration_file in pending_migrations:
+                            self._run_migration(conn, migration_file)
+                    else:
+                        logger.info("No pending migrations found")
                 
+                self._initialized = True
+                logger.info(f"Database initialized successfully at {self._db_path}")
+                    
+            except Exception as e:
+                logger.error(f"Failed to initialize database: {e}")
+                raise
+    
+    @contextmanager
+    def _get_connection(self) -> ContextManager[sqlite3.Connection]:
+        """Get a database connection with proper resource management."""
+        conn = None
+        try:
+            # Get database configuration
+            db_config = config.get_database_advanced_config()
+            timeout = db_config.get('timeout', 30.0)
+            
+            conn = sqlite3.connect(
+                self._db_path, 
+                timeout=timeout,
+                isolation_level=None  # Autocommit mode
+            )
+            conn.row_factory = sqlite3.Row
+            
+            # Configure database based on settings
+            if db_config.get('wal_mode', True):
+                conn.execute("PRAGMA journal_mode=WAL")
+            
+            sync_mode = db_config.get('synchronous_mode', 'NORMAL')
+            conn.execute(f"PRAGMA synchronous={sync_mode}")
+            
+            cache_size = db_config.get('cache_size', 1000)
+            conn.execute(f"PRAGMA cache_size={cache_size}")
+            
+            temp_store = db_config.get('temp_store', 'memory')
+            conn.execute(f"PRAGMA temp_store={temp_store}")
+            
+            yield conn
         except Exception as e:
-            if self._connection:
-                self._connection.close()
-                self._connection = None
-            logger.error(f"Failed to initialize database: {e}")
-            raise e
+            if conn:
+                conn.rollback()
+            logger.error(f"Database connection error: {e}")
+            raise
+        finally:
+            if conn:
+                conn.close()
     
-    def get_connection(self) -> sqlite3.Connection:
-        """Get the database connection."""
-        if self._connection is None:
-            self.initialize()
-        return self._connection
-    
-    def close(self) -> None:
-        """Close the database connection."""
-        if self._connection is not None:
-            self._connection.close()
-            self._connection = None
-            self._initialized = False
-            logger.info("Database connection closed")
-    
-    def get_migrations_dir(self) -> str:
+    def _get_migrations_dir(self) -> str:
         """Get the path to the migrations directory."""
         current_dir = Path(__file__).parent
         project_root = current_dir.parent.parent
         return str(project_root / 'migrations')
     
-    def get_pending_migrations(self) -> List[str]:
+    def _get_pending_migrations(self, conn: sqlite3.Connection) -> List[str]:
         """Get a list of pending migrations that haven't been run yet."""
         # Get all migration files
-        migrations_dir = self.get_migrations_dir()
+        migrations_dir = self._get_migrations_dir()
         migration_files = sorted(glob.glob(os.path.join(migrations_dir, '*.sql')))
         
         # Get migrations that have already been run
-        cursor = self._connection.cursor()
+        cursor = conn.cursor()
         cursor.execute("SELECT migration_name FROM migrations")
         applied_migrations = {row[0] for row in cursor.fetchall()}
         
@@ -112,7 +130,7 @@ class DatabaseManager:
         
         return pending_migrations
     
-    def run_migration(self, migration_file: str) -> None:
+    def _run_migration(self, conn: sqlite3.Connection, migration_file: str) -> None:
         """Run a single migration file."""
         migration_name = os.path.basename(migration_file)
         
@@ -121,7 +139,10 @@ class DatabaseManager:
             with open(migration_file, 'r') as f:
                 sql = f.read()
             
-            cursor = self._connection.cursor()
+            cursor = conn.cursor()
+            cursor.execute("BEGIN TRANSACTION")
+            
+            # Execute the migration SQL
             cursor.executescript(sql)
             
             # Record that the migration was run
@@ -130,188 +151,243 @@ class DatabaseManager:
                 (migration_name,)
             )
             
-            self._connection.commit()
+            cursor.execute("COMMIT")
             logger.info(f"Successfully ran migration: {migration_name}")
             
         except Exception as e:
-            self._connection.rollback()
+            cursor.execute("ROLLBACK")
             logger.error(f"Error running migration {migration_name}: {e}")
             raise
     
     def get_current_quantity(self, item_name: str) -> int:
         """Get the current quantity of an item."""
-        cursor = self._connection.cursor()
-        cursor.execute("SELECT quantity FROM inventory WHERE item_name = ?", (item_name,))
-        result = cursor.fetchone()
-        return result['quantity'] if result else 0
+        with self._lock:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT quantity FROM inventory WHERE item_name = ?", (item_name,))
+                result = cursor.fetchone()
+                return result['quantity'] if result else 0
     
     def add_item(self, item_name: str, quantity: int) -> bool:
         """Add items to inventory."""
         try:
             item = InventoryItem(item_name=item_name, quantity=quantity)
-        except ValueError:
+        except ValueError as e:
+            logger.warning(f"Invalid item data: {e}")
             return False
             
-        cursor = self._connection.cursor()
-        
-        try:
-            cursor.execute("BEGIN")
-            
-            # Get current quantity
-            current = self.get_current_quantity(item.item_name)
-            new_quantity = current + item.quantity
-            
-            # Update inventory
-            if current == 0:
-                cursor.execute(
-                    "INSERT INTO inventory (item_name, quantity) VALUES (?, ?)",
-                    (item.item_name, new_quantity)
-                )
-            else:
-                cursor.execute(
-                    "UPDATE inventory SET quantity = ? WHERE item_name = ?",
-                    (new_quantity, item.item_name)
-                )
-            
-            # Record in history
-            cursor.execute(
-                """INSERT INTO inventory_history 
-                   (item_name, previous_quantity, new_quantity, operation_type)
-                   VALUES (?, ?, ?, 'add')""",
-                (item.item_name, current, new_quantity)
-            )
-            
-            self._connection.commit()
-            return True
-        except Exception:
-            self._connection.rollback()
-            return False
+        with self._lock:
+            try:
+                with self._get_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("BEGIN TRANSACTION")
+                    
+                    # Get current quantity
+                    cursor.execute("SELECT quantity FROM inventory WHERE item_name = ?", (item.item_name,))
+                    result = cursor.fetchone()
+                    current = result['quantity'] if result else 0
+                    new_quantity = current + item.quantity
+                    
+                    # Update inventory
+                    if current == 0:
+                        cursor.execute(
+                            "INSERT INTO inventory (item_name, quantity) VALUES (?, ?)",
+                            (item.item_name, new_quantity)
+                        )
+                    else:
+                        cursor.execute(
+                            "UPDATE inventory SET quantity = ? WHERE item_name = ?",
+                            (new_quantity, item.item_name)
+                        )
+                    
+                    # Record in history
+                    cursor.execute(
+                        """INSERT INTO inventory_history 
+                           (item_name, previous_quantity, new_quantity, operation_type)
+                           VALUES (?, ?, ?, 'add')""",
+                        (item.item_name, current, new_quantity)
+                    )
+                    
+                    cursor.execute("COMMIT")
+                    return True
+            except Exception as e:
+                logger.error(f"Error adding item {item_name}: {e}")
+                return False
     
     def remove_item(self, item_name: str, quantity: int) -> bool:
         """Remove items from inventory."""
         try:
             item = InventoryItem(item_name=item_name, quantity=quantity)
-        except ValueError:
+        except ValueError as e:
+            logger.warning(f"Invalid item data: {e}")
             return False
             
-        cursor = self._connection.cursor()
-        
-        try:
-            cursor.execute("BEGIN")
-            
-            # Get current quantity
-            current = self.get_current_quantity(item.item_name)
-            if current < item.quantity:
-                new_quantity = 0
-            else:
-                new_quantity = current - item.quantity
-            
-            # Update inventory
-            cursor.execute(
-                "UPDATE inventory SET quantity = ? WHERE item_name = ?",
-                (new_quantity, item.item_name)
-            )
-            
-            # Record in history
-            cursor.execute(
-                """INSERT INTO inventory_history 
-                   (item_name, previous_quantity, new_quantity, operation_type)
-                   VALUES (?, ?, ?, 'remove')""",
-                (item.item_name, current, new_quantity)
-            )
-            
-            self._connection.commit()
-            return True
-        except Exception:
-            self._connection.rollback()
-            return False
+        with self._lock:
+            try:
+                with self._get_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("BEGIN TRANSACTION")
+                    
+                    # Get current quantity
+                    cursor.execute("SELECT quantity FROM inventory WHERE item_name = ?", (item.item_name,))
+                    result = cursor.fetchone()
+                    current = result['quantity'] if result else 0
+                    
+                    if current < item.quantity:
+                        new_quantity = 0
+                    else:
+                        new_quantity = current - item.quantity
+                    
+                    # Update inventory
+                    cursor.execute(
+                        "UPDATE inventory SET quantity = ? WHERE item_name = ?",
+                        (new_quantity, item.item_name)
+                    )
+                    
+                    # Record in history
+                    cursor.execute(
+                        """INSERT INTO inventory_history 
+                           (item_name, previous_quantity, new_quantity, operation_type)
+                           VALUES (?, ?, ?, 'remove')""",
+                        (item.item_name, current, new_quantity)
+                    )
+                    
+                    cursor.execute("COMMIT")
+                    return True
+            except Exception as e:
+                logger.error(f"Error removing item {item_name}: {e}")
+                return False
     
     def set_item(self, item_name: str, quantity: int) -> bool:
         """Set the quantity of an item."""
         try:
             item = InventoryItem(item_name=item_name, quantity=quantity)
-        except ValueError:
+        except ValueError as e:
+            logger.warning(f"Invalid item data: {e}")
             return False
             
-        cursor = self._connection.cursor()
-        
-        try:
-            cursor.execute("BEGIN")
-            
-            # Get current quantity
-            current = self.get_current_quantity(item.item_name)
-            
-            # Update inventory
-            if current == 0:
-                cursor.execute(
-                    "INSERT INTO inventory (item_name, quantity) VALUES (?, ?)",
-                    (item.item_name, item.quantity)
-                )
-            else:
-                cursor.execute(
-                    "UPDATE inventory SET quantity = ? WHERE item_name = ?",
-                    (item.quantity, item.item_name)
-                )
-            
-            # Record in history
-            cursor.execute(
-                """INSERT INTO inventory_history 
-                   (item_name, previous_quantity, new_quantity, operation_type)
-                   VALUES (?, ?, ?, 'set')""",
-                (item.item_name, current, item.quantity)
-            )
-            
-            self._connection.commit()
-            return True
-        except Exception:
-            self._connection.rollback()
-            return False
-    
-    def undo_last_change(self) -> bool:
-        """Undo the last inventory change."""
-        cursor = self._connection.cursor()
-        
-        try:
-            cursor.execute("BEGIN")
-            
-            # Get the last change
-            cursor.execute(
-                """SELECT * FROM inventory_history 
-                   ORDER BY id DESC LIMIT 1"""
-            )
-            last_change = cursor.fetchone()
-            
-            if not last_change:
-                self._connection.rollback()
+        with self._lock:
+            try:
+                with self._get_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("BEGIN TRANSACTION")
+                    
+                    # Get current quantity
+                    cursor.execute("SELECT quantity FROM inventory WHERE item_name = ?", (item.item_name,))
+                    result = cursor.fetchone()
+                    current = result['quantity'] if result else 0
+                    
+                    # Update inventory
+                    if current == 0:
+                        cursor.execute(
+                            "INSERT INTO inventory (item_name, quantity) VALUES (?, ?)",
+                            (item.item_name, item.quantity)
+                        )
+                    else:
+                        cursor.execute(
+                            "UPDATE inventory SET quantity = ? WHERE item_name = ?",
+                            (item.quantity, item.item_name)
+                        )
+                    
+                    # Record in history
+                    cursor.execute(
+                        """INSERT INTO inventory_history 
+                           (item_name, previous_quantity, new_quantity, operation_type)
+                           VALUES (?, ?, ?, 'set')""",
+                        (item.item_name, current, item.quantity)
+                    )
+                    
+                    cursor.execute("COMMIT")
+                    return True
+            except Exception as e:
+                logger.error(f"Error setting item {item_name}: {e}")
                 return False
-                
-            # Store the history ID to delete later
-            history_id = last_change['id']
-            
-            # Update inventory directly instead of using add/remove/set
-            cursor.execute(
-                "UPDATE inventory SET quantity = ? WHERE item_name = ?",
-                (last_change['previous_quantity'], last_change['item_name'])
-            )
-            
-            # Remove the change from history
-            cursor.execute(
-                "DELETE FROM inventory_history WHERE id = ?",
-                (history_id,)
-            )
-            
-            self._connection.commit()
-            return True
-        except Exception:
-            self._connection.rollback()
-            return False
     
-    def get_inventory(self) -> List[tuple]:
+    def undo_last_change(self) -> tuple[bool, Optional[str]]:
+        """Undo the last inventory change.
+        
+        Returns:
+            Tuple of (success, item_name) where item_name is the affected item
+        """
+        with self._lock:
+            try:
+                with self._get_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("BEGIN TRANSACTION")
+                    
+                    # Get the last change
+                    cursor.execute(
+                        """SELECT * FROM inventory_history 
+                           ORDER BY id DESC LIMIT 1"""
+                    )
+                    last_change = cursor.fetchone()
+                    
+                    if not last_change:
+                        cursor.execute("ROLLBACK")
+                        return False, None
+                        
+                    # Store the history ID to delete later
+                    history_id = last_change['id']
+                    item_name = last_change['item_name']
+                    previous_quantity = last_change['previous_quantity']
+                    
+                    # Update inventory directly
+                    if previous_quantity == 0:
+                        # Remove the item entirely if previous quantity was 0
+                        cursor.execute(
+                            "DELETE FROM inventory WHERE item_name = ?",
+                            (item_name,)
+                        )
+                    else:
+                        cursor.execute(
+                            "UPDATE inventory SET quantity = ? WHERE item_name = ?",
+                            (previous_quantity, item_name)
+                        )
+                    
+                    # Remove the change from history
+                    cursor.execute(
+                        "DELETE FROM inventory_history WHERE id = ?",
+                        (history_id,)
+                    )
+                    
+                    cursor.execute("COMMIT")
+                    return True, item_name
+            except Exception as e:
+                logger.error(f"Error undoing last change: {e}")
+                return False, None
+    
+    def get_inventory(self) -> List[tuple[str, int]]:
         """Get the current inventory state."""
-        cursor = self._connection.cursor()
-        cursor.execute("SELECT item_name, quantity FROM inventory")
-        return [(row['item_name'], row['quantity']) for row in cursor.fetchall()]
+        with self._lock:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT item_name, quantity FROM inventory WHERE quantity > 0")
+                return [(row['item_name'], row['quantity']) for row in cursor.fetchall()]
 
 
-# Global database manager instance
-db_manager = DatabaseManager()
+# Factory function to create database manager instances
+def create_database_manager(db_path: Optional[str] = None) -> DatabaseManager:
+    """Create a new database manager instance.
+    
+    Args:
+        db_path: Path to the database file. If None, uses config default.
+        
+    Returns:
+        DatabaseManager instance
+    """
+    return DatabaseManager(db_path)
+
+
+# Default database manager instance for backward compatibility
+# This will be replaced with dependency injection in the future
+_default_db_manager = None
+
+def get_default_db_manager() -> DatabaseManager:
+    """Get the default database manager instance."""
+    global _default_db_manager
+    if _default_db_manager is None:
+        _default_db_manager = create_database_manager()
+    return _default_db_manager
+
+# Backward compatibility alias
+db_manager = get_default_db_manager()

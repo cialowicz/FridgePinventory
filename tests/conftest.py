@@ -3,7 +3,8 @@
 import os
 import pytest
 from unittest.mock import patch, MagicMock
-from pi_inventory_system.database_manager import db_manager
+from pi_inventory_system.database_manager import create_database_manager
+from pi_inventory_system.config_manager import create_config_manager
 
 @pytest.fixture(autouse=True)
 def mock_config():
@@ -53,9 +54,26 @@ def mock_config():
         'log_level': 'INFO',
         'enable_diagnostics': True
     }
+    mock_config.get_nlp_config.return_value = {
+        'spacy_model': 'en_core_web_sm',
+        'enable_spacy': True
+    }
+    mock_config.get_database_advanced_config.return_value = {
+        'timeout': 30.0,
+        'wal_mode': True,
+        'cache_size': 1000,
+        'synchronous_mode': 'NORMAL',
+        'temp_store': 'memory'
+    }
+    mock_config.get_platform_config.return_value = {
+        'raspberry_pi_model_file': '/proc/device-tree/model',
+        'required_pi_string': 'raspberry pi'
+    }
     mock_config.get.return_value = {}
     
-    with patch('pi_inventory_system.config_manager.config', mock_config):
+    # Mock both the singleton and factory function approaches
+    with patch('pi_inventory_system.config_manager.config', mock_config), \
+         patch('pi_inventory_system.config_manager.get_default_config_manager', return_value=mock_config):
         yield mock_config
 
 @pytest.fixture
@@ -88,15 +106,22 @@ def mock_gpio_environment():
         yield mock_is_pi, mock_gpio
 
 @pytest.fixture
+def db_manager_instance(tmp_path):
+    """Create a test database manager instance."""
+    # Create a clean database manager for each test
+    db_manager = create_database_manager(db_path=str(tmp_path / "test.db"))
+    yield db_manager
+    # No explicit cleanup needed due to context manager usage
+
+@pytest.fixture
 def db_connection(tmp_path):
-    """Set up test database connection and run migrations."""
-    # Initialize a clean database for each test
-    db_manager.initialize(db_path=str(tmp_path / "test.db"))
+    """Set up test database connection and run migrations (legacy compatibility)."""
+    # For backward compatibility with existing tests
+    db_manager = create_database_manager(db_path=str(tmp_path / "test.db"))
     
-    yield db_manager.get_connection()
-    
-    # Clean up the database connection
-    db_manager.close()
+    # Mock the old db_manager singleton for tests that still use it
+    with patch('pi_inventory_system.database_manager.db_manager', db_manager):
+        yield db_manager
 
 @pytest.fixture
 def mock_display():

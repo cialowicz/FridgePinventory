@@ -8,21 +8,18 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-
 class ConfigManager:
-    """Singleton configuration manager for the FridgePinventory system."""
+    """Thread-safe configuration manager for the FridgePinventory system."""
     
-    _instance = None
-    _config = None
-    
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super(ConfigManager, cls).__new__(cls)
-        return cls._instance
-    
-    def __init__(self):
-        if self._config is None:
-            self.load_config()
+    def __init__(self, config_path: Optional[str] = None):
+        """Initialize the configuration manager.
+        
+        Args:
+            config_path: Path to the configuration file. If None, uses default location.
+        """
+        self._config: Optional[Dict[str, Any]] = None
+        self._config_path = config_path
+        self.load_config(config_path)
     
     def load_config(self, config_path: Optional[str] = None) -> None:
         """Load configuration from YAML file with environment variable overrides."""
@@ -115,6 +112,21 @@ class ConfigManager:
                     'type': None,
                     'color': None
                 }
+            },
+            'nlp': {
+                'spacy_model': 'en_core_web_sm',
+                'enable_spacy': True
+            },
+            'database_advanced': {
+                'timeout': 30.0,
+                'wal_mode': True,
+                'cache_size': 1000,
+                'synchronous_mode': 'NORMAL',
+                'temp_store': 'memory'
+            },
+            'platform': {
+                'raspberry_pi_model_file': '/proc/device-tree/model',
+                'required_pi_string': 'raspberry pi'
             }
         }
     
@@ -128,25 +140,28 @@ class ConfigManager:
             'FRIDGEP_AUDIO_TIMEOUT': ['audio', 'voice_recognition', 'timeout'],
             'FRIDGEP_SIMILARITY_THRESHOLD': ['commands', 'similarity_threshold'],
             'FRIDGEP_MAIN_LOOP_DELAY': ['system', 'main_loop_delay'],
+            'FRIDGEP_SPACY_MODEL': ['nlp', 'spacy_model'],
+            'FRIDGEP_DB_TIMEOUT': ['database_advanced', 'timeout'],
+            'FRIDGEP_DB_CACHE_SIZE': ['database_advanced', 'cache_size'],
         }
         
         for env_var, config_path in env_mappings.items():
             env_value = os.getenv(env_var)
             if env_value is not None:
                 # Convert string values to appropriate types
-                if config_path[-1] in ['size', 'timeout', 'pin']:
+                if config_path[-1] in ['size', 'timeout', 'pin', 'cache_size']:
                     try:
                         env_value = int(env_value)
                     except ValueError:
                         logger.warning(f"Invalid integer value for {env_var}: {env_value}")
                         continue
-                elif config_path[-1] in ['similarity_threshold', 'volume', 'main_loop_delay']:
+                elif config_path[-1] in ['similarity_threshold', 'volume', 'main_loop_delay', 'timeout']:
                     try:
                         env_value = float(env_value)
                     except ValueError:
                         logger.warning(f"Invalid float value for {env_var}: {env_value}")
                         continue
-                elif config_path[-1] in ['enabled', 'auto_detect', 'enable_diagnostics']:
+                elif config_path[-1] in ['enabled', 'auto_detect', 'enable_diagnostics', 'enable_spacy', 'wal_mode']:
                     env_value = env_value.lower() in ('true', '1', 'yes', 'on')
                 
                 # Set the value in config
@@ -202,11 +217,47 @@ class ConfigManager:
         """Get hardware configuration."""
         return self.get('hardware', default={})
     
+    def get_nlp_config(self) -> Dict[str, Any]:
+        """Get NLP configuration."""
+        return self.get('nlp', default={})
+    
+    def get_database_advanced_config(self) -> Dict[str, Any]:
+        """Get advanced database configuration."""
+        return self.get('database_advanced', default={})
+    
+    def get_platform_config(self) -> Dict[str, Any]:
+        """Get platform configuration."""
+        return self.get('platform', default={})
+    
     def reload_config(self, config_path: Optional[str] = None) -> None:
         """Reload configuration from file."""
         self._config = None
         self.load_config(config_path)
 
 
-# Global configuration instance
-config = ConfigManager()
+# Factory function to create configuration manager instances
+def create_config_manager(config_path: Optional[str] = None) -> ConfigManager:
+    """Create a new configuration manager instance.
+    
+    Args:
+        config_path: Path to the configuration file. If None, uses default location.
+        
+    Returns:
+        ConfigManager instance
+    """
+    return ConfigManager(config_path)
+
+
+# Default configuration manager instance for backward compatibility
+# This will be replaced with dependency injection in the future
+_default_config_manager = None
+
+def get_default_config_manager() -> ConfigManager:
+    """Get the default configuration manager instance."""
+    global _default_config_manager
+    if _default_config_manager is None:
+        _default_config_manager = create_config_manager()
+    return _default_config_manager
+
+# Backward compatibility alias
+config = get_default_config_manager()

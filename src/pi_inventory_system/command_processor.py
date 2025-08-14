@@ -24,11 +24,23 @@ def _ensure_nlp():
         return nlp
     if spacy is None:
         return None
+    
+    # Get NLP configuration
+    from .config_manager import config
+    nlp_config = config.get_nlp_config()
+    
+    if not nlp_config.get('enable_spacy', True):
+        logging.info("spaCy disabled in configuration, using rule-based parsing")
+        nlp = None
+        return None
+    
     try:
-        nlp = spacy.load("en_core_web_sm")  # Requires separate model install
+        model_name = nlp_config.get('spacy_model', 'en_core_web_sm')
+        nlp = spacy.load(model_name)
+        logging.info(f"Successfully loaded spaCy model: {model_name}")
         return nlp
     except Exception as e:
-        logging.warning(f"spaCy model not available, falling back to rule-based parsing: {e}")
+        logging.warning(f"spaCy model '{nlp_config.get('spacy_model', 'en_core_web_sm')}' not available, falling back to rule-based parsing: {e}")
         nlp = None
         return None
 
