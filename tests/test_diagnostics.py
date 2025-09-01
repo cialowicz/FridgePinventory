@@ -39,7 +39,7 @@ def test_diagnostics_display_success(mock_display, mock_motion_sensor, mock_supp
     """Test successful display diagnostics."""
     with patch('pi_inventory_system.diagnostics.display_text') as mock_display_text:
         mock_display_text.return_value = True
-        display_ok, motion_sensor_ok, audio_ok = run_startup_diagnostics()
+        display_ok, motion_sensor_ok, audio_ok, display_instance = run_startup_diagnostics()
         assert display_ok is True
         assert motion_sensor_ok is True
         assert audio_ok is True
@@ -56,7 +56,7 @@ def test_diagnostics_display_failure(mock_display, mock_motion_sensor, mock_supp
     """Test display diagnostics failure."""
     with patch('pi_inventory_system.diagnostics.display_text') as mock_display_text:
         mock_display_text.return_value = False
-        display_ok, motion_sensor_ok, audio_ok = run_startup_diagnostics()
+        display_ok, motion_sensor_ok, audio_ok, display_instance = run_startup_diagnostics()
         assert display_ok is False
         assert motion_sensor_ok is True
         assert audio_ok is True
@@ -66,7 +66,7 @@ def test_diagnostics_motion_sensor_failure(mock_display, mock_motion_sensor, moc
     mock_motion_sensor.side_effect = Exception("Sensor error")
     with patch('pi_inventory_system.diagnostics.display_text') as mock_display_text:
         mock_display_text.return_value = True
-        display_ok, motion_sensor_ok, audio_ok = run_startup_diagnostics()
+        display_ok, motion_sensor_ok, audio_ok, display_instance = run_startup_diagnostics()
         assert display_ok is True
         assert motion_sensor_ok is False
         assert audio_ok is True
@@ -77,7 +77,7 @@ def test_diagnostics_platform_not_supported():
          patch('pi_inventory_system.diagnostics.is_motion_sensor_supported') as mock_motion:
         mock_display.return_value = False
         mock_motion.return_value = False
-        display_ok, motion_sensor_ok, audio_ok = run_startup_diagnostics()
+        display_ok, motion_sensor_ok, audio_ok, display_instance = run_startup_diagnostics()
         assert display_ok is False
         assert motion_sensor_ok is False
         assert audio_ok is False
@@ -92,7 +92,7 @@ def test_diagnostics_audio_success(mock_display, mock_motion_sensor, mock_suppor
         mock_sound.return_value = True
         mock_tts.return_value = MagicMock()
         mock_mic.return_value = "test"
-        display_ok, motion_sensor_ok, audio_ok = run_startup_diagnostics()
+        display_ok, motion_sensor_ok, audio_ok, display_instance = run_startup_diagnostics()
         assert display_ok is True
         assert motion_sensor_ok is True
         assert audio_ok is True
@@ -108,7 +108,7 @@ def test_diagnostics_audio_failure(mock_display, mock_motion_sensor, mock_suppor
         mock_sound.return_value = False
         mock_tts.return_value = MagicMock()
         mock_mic.return_value = None
-        display_ok, motion_sensor_ok, audio_ok = run_startup_diagnostics()
+        display_ok, motion_sensor_ok, audio_ok, display_instance = run_startup_diagnostics()
         assert display_ok is True
         assert motion_sensor_ok is True
         assert audio_ok is False

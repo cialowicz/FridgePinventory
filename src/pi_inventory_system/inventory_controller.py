@@ -2,31 +2,30 @@ import logging
 from typing import List, Tuple, Optional
 from .database_manager import get_default_db_manager
 from .command_processor import interpret_command
-from .display_manager import initialize_display, display_inventory
+from .display_manager import display_inventory
 from .inventory_item import InventoryItem
 
 
 class InventoryController:
     """Controller class for managing the inventory system."""
     
-    def __init__(self, db_manager=None):
+    def __init__(self, db_manager=None, display=None):
         """Initialize the inventory controller.
         
         Args:
             db_manager: Database manager instance. If None, uses default.
+            display: Display instance. If None, display features will be disabled.
         """
         self._db_manager = db_manager or get_default_db_manager()
-        self._initialize_system()
+        self.display = display
         self._command_history: List[Tuple[str, InventoryItem]] = []
-    
-    def _initialize_system(self) -> None:
-        """Initialize the database and display."""
-        # Database is already initialized in constructor
-        self.display = initialize_display()
+        
         if self.display:
-            logging.info("Display initialized successfully")
+            logging.info("Display instance provided to InventoryController")
         else:
-            logging.warning("Display initialization failed or not supported")
+            logging.warning("No display instance provided - display features disabled")
+    
+
     
     def process_command(self, command: str) -> Tuple[bool, Optional[str]]:
         """Process a voice command and return success status and feedback message.

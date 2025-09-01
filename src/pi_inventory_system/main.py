@@ -71,8 +71,8 @@ class FridgePinventoryApp:
             self.logger.warning("Display reported OK but no instance returned, attempting to initialize...")
             self.display = initialize_display()
         
-        # Initialize inventory controller with our database manager
-        self.controller = InventoryController(self.db_manager)
+        # Initialize inventory controller with our database manager and display instance
+        self.controller = InventoryController(self.db_manager, self.display)
         
         self.logger.info("FridgePinventory initialization complete")
         return True
