@@ -11,6 +11,7 @@ from pi_inventory_system.display_manager import initialize_display, display_inve
 from pi_inventory_system.motion_sensor import detect_motion, cleanup
 from pi_inventory_system.voice_recognition import recognize_speech_from_mic
 from pi_inventory_system.inventory_controller import InventoryController
+from pi_inventory_system.audio_feedback import AudioFeedback
 
 class FridgePinventoryApp:
     """Main application class for FridgePinventory system."""
@@ -34,6 +35,7 @@ class FridgePinventoryApp:
         self.controller = None
         self.display = None
         self.hardware_status = None
+        self.audio_feedback = AudioFeedback()
         
         self.logger.info(f"Application starting. User: {os.getenv('USER', 'N/A')}, Home: {os.getenv('HOME', 'N/A')}")
         self.logger.debug("DEBUG logging enabled.")
@@ -73,6 +75,11 @@ class FridgePinventoryApp:
         
         # Initialize inventory controller with our database manager and display instance
         self.controller = InventoryController(self.db_manager, self.display)
+
+        # Play startup sound
+        if audio_ok:
+            self.logger.info("Playing startup sound.")
+            self.audio_feedback.play_sound('success')
         
         self.logger.info("FridgePinventory initialization complete")
         return True

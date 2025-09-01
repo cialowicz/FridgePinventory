@@ -138,10 +138,21 @@ def _is_raspberry_pi_5():
 
 def _read_pinctrl(pin: int) -> bool:
     try:
-        result = subprocess.run(['sudo', 'pinctrl', 'get', str(pin)], capture_output=True, text=True, check=True)
+        result = subprocess.run(
+            ['sudo', 'pinctrl', 'get', str(pin)], 
+            capture_output=True, 
+            text=True, 
+            check=True,
+            timeout=2
+        )
+        print(f"DEBUG: pinctrl stdout: {result.stdout.strip()}")
         return 'level=1' in result.stdout
+    except subprocess.CalledProcessError as e:
+        print(f"DEBUG: pinctrl command failed with exit code {e.returncode}.")
+        print(f"DEBUG: pinctrl stderr: {e.stderr.strip()}")
+        return False
     except Exception as e:
-        print(f"DEBUG: Failed to read pin {pin} using pinctrl: {e}")
+        print(f"DEBUG: An unexpected error occurred while running pinctrl: {e}")
         return False
 
 def test_motion_sensor(lines):
