@@ -162,6 +162,13 @@ def test_motion_sensor(lines):
         motion_detected = False
         if _is_raspberry_pi_5():
             print("DEBUG: Using Pi 5 'pinctrl' method.")
+            try:
+                # Set a pull-down resistor on the pin
+                print(f"DEBUG: Setting pull-down on GPIO {MOTION_SENSOR_PIN}")
+                subprocess.run(['sudo', 'pinctrl', 'set', str(MOTION_SENSOR_PIN), 'pd'], check=True)
+            except Exception as e:
+                print(f"DEBUG: Failed to set pull-down resistor: {e}")
+
             for _ in range(10):
                 if _read_pinctrl(MOTION_SENSOR_PIN):
                     motion_detected = True
