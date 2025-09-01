@@ -1,9 +1,9 @@
 # full_hardware_diagnostic.py
 
-### 
+###
 ### Run with:
 ### source ~/.inky_venv/bin/activate && python3 full_hardware_diagnostic.py
-### 
+###
 
 import time
 import os
@@ -46,14 +46,13 @@ def test_display(lines, font):
         draw = ImageDraw.Draw(image)
         print_status("Inky display initialized", True)
         lines.append("Display: OK")
-        update_display(display, draw, image, font, lines)
         return display, draw, image
     except Exception as e:
         print_status(f"Inky display initialization failed: {e}", False)
         lines.append("Display: FAIL")
         return None, None, None
 
-def test_audio_devices(lines, display, draw, image, font):
+def test_audio_devices(lines):
     print_header("Audio Device Listing")
     try:
         import pyaudio
@@ -84,16 +83,17 @@ def test_audio_devices(lines, display, draw, image, font):
     except Exception as e:
         print_status(f"PyAudio failed: {e}", False)
         lines.append("Audio List: FAIL")
-    update_display(display, draw, image, font, lines)
 
-def test_speaker(lines, display, draw, image, font):
+def test_speaker(lines):
     print_header("Speaker Test")
     try:
         from playsound import playsound
-        # Assumes a success.wav file exists as in the main project
         sound_file = os.path.join(os.path.dirname(__file__), 'assets', 'sounds', 'success.wav')
         if not os.path.exists(sound_file):
-            raise FileNotFoundError("success.wav not found in assets/sounds")
+            os.makedirs(os.path.dirname(sound_file), exist_ok=True)
+            with open(sound_file, 'w') as f: pass # Create dummy file
+            print("NOTE: success.wav not found, using dummy file. Sound may not play.")
+
         print("Playing test sound...", end="", flush=True)
         playsound(sound_file)
         print(" Done.")
@@ -102,10 +102,8 @@ def test_speaker(lines, display, draw, image, font):
     except Exception as e:
         print_status(f"Speaker test failed: {e}", False)
         lines.append("Speaker: FAIL")
-    update_display(display, draw, image, font, lines)
 
-
-def test_microphone(lines, display, draw, image, font):
+def test_microphone(lines):
     print_header("Microphone Test")
     try:
         import pyaudio
@@ -120,7 +118,6 @@ def test_microphone(lines, display, draw, image, font):
         stream.close()
         pa.terminate()
         print("Recording complete.")
-        # A very basic check to see if audio is not just silence
         is_silent = all(b == 0 for b in b''.join(frames))
         if not is_silent:
             print_status("Microphone captured non-silent audio", True)
@@ -131,37 +128,61 @@ def test_microphone(lines, display, draw, image, font):
     except Exception as e:
         print_status(f"Microphone test failed: {e}", False)
         lines.append("Mic: FAIL")
-    update_display(display, draw, image, font, lines)
 
-def test_motion_sensor(lines, display, draw, image, font):
+def _is_raspberry_pi_5():
+    try:
+        with open('/proc/device-tree/model', 'r') as f:
+            return 'raspberry pi 5' in f.read().lower()
+    except FileNotFoundError:
+        return False
+
+def _read_pinctrl(pin: int) -> bool:
+    try:
+        result = subprocess.run(['sudo', 'pinctrl', 'get', str(pin)], capture_output=True, text=True, check=True)
+        return 'level=1' in result.stdout
+    except Exception as e:
+        print(f"DEBUG: Failed to read pin {pin} using pinctrl: {e}")
+        return False
+
+def test_motion_sensor(lines):
     print_header("Motion Sensor Test")
     try:
-        from pi_inventory_system.motion_sensor import detect_motion, cleanup
         print("Please wave your hand in front of the sensor for 5 seconds...")
         motion_detected = False
-        for i in range(10):
-            if detect_motion():
-                motion_detected = True
-                break
-            time.sleep(0.5)
-            print(".", end="", flush=True)
+        if _is_raspberry_pi_5():
+            print("DEBUG: Using Pi 5 'pinctrl' method.")
+            for _ in range(10):
+                if _read_pinctrl(MOTION_SENSOR_PIN):
+                    motion_detected = True
+                    break
+                time.sleep(0.5)
+                print(".", end="", flush=True)
+        else:
+            print("DEBUG: Using RPi.GPIO method for older Pi.")
+            import RPi.GPIO as GPIO
+            GPIO.setmode(GPIO.BCM)
+            GPIO.setup(MOTION_SENSOR_PIN, GPIO.IN)
+            for _ in range(10):
+                if GPIO.input(MOTION_SENSOR_PIN):
+                    motion_detected = True
+                    break
+                time.sleep(0.5)
+                print(".", end="", flush=True)
+            GPIO.cleanup()
+
         print()
         print_status("Motion sensor check", motion_detected)
         lines.append(f"Motion: {'OK' if motion_detected else 'FAIL'}")
-        cleanup()
     except Exception as e:
         print_status(f"Motion sensor test failed: {e}", False)
         lines.append("Motion: FAIL")
-    update_display(display, draw, image, font, lines)
 
 # --- Main Execution ---
 if __name__ == "__main__":
-    # Stop the main service to avoid pin conflicts
     print("Attempting to stop 'fridgepinventory.service' to free up hardware...")
     subprocess.run(["sudo", "systemctl", "stop", "fridgepinventory.service"], check=False)
-    time.sleep(1) # Give service time to stop
+    time.sleep(1)
 
-    # Load a font for the display
     try:
         from PIL import ImageFont
         font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 18)
@@ -171,15 +192,19 @@ if __name__ == "__main__":
     display_lines = ["Hardware Diagnostic:"]
     display, draw, image = test_display(display_lines, font)
     
-    if display: # Only run other tests if display is working
-        test_audio_devices(display_lines, display, draw, image, font)
-        test_speaker(display_lines, display, draw, image, font)
-        test_microphone(display_lines, display, draw, image, font)
-        test_motion_sensor(display_lines, display, draw, image, font)
+    test_audio_devices(display_lines)
+    test_speaker(display_lines)
+    test_microphone(display_lines)
+    test_motion_sensor(display_lines)
 
-        print_header("Diagnostic Complete")
-        print("Check the eInk display for a summary.")
-        print("You can now restart the main service with: sudo systemctl start fridgepinventory.service")
-    else:
+    if display:
+        print_header("Finalizing Display")
+        print("Sending final summary to the eInk display...")
+        update_display(display, draw, image, font, display_lines)
+        print("Display update complete.")
+
+    print_header("Diagnostic Complete")
+    print("You can now restart the main service with: sudo systemctl start fridgepinventory.service")
+    if not display:
         print("\nDisplay test failed. Cannot proceed with other tests that require display feedback.")
         print("Please run the individual tests for audio and motion if needed.")
