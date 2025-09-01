@@ -24,7 +24,7 @@ def print_status(message, status):
     print(f"- {message}: [{status_str}]")
     return status
 
-def update_display(display, draw, font, lines):
+def update_display(display, draw, image, font, lines):
     if display:
         draw.rectangle((0, 0, display.width, display.height), fill=display.WHITE)
         y = 5
@@ -46,7 +46,7 @@ def test_display(lines, font):
         draw = ImageDraw.Draw(image)
         print_status("Inky display initialized", True)
         lines.append("Display: OK")
-        update_display(display, draw, font, lines)
+        update_display(display, draw, image, font, lines)
         return display, draw, image
     except Exception as e:
         print_status(f"Inky display initialization failed: {e}", False)
@@ -84,7 +84,7 @@ def test_audio_devices(lines, display, draw, image, font):
     except Exception as e:
         print_status(f"PyAudio failed: {e}", False)
         lines.append("Audio List: FAIL")
-    update_display(display, draw, font, lines)
+    update_display(display, draw, image, font, lines)
 
 def test_speaker(lines, display, draw, image, font):
     print_header("Speaker Test")
@@ -102,7 +102,7 @@ def test_speaker(lines, display, draw, image, font):
     except Exception as e:
         print_status(f"Speaker test failed: {e}", False)
         lines.append("Speaker: FAIL")
-    update_display(display, draw, font, lines)
+    update_display(display, draw, image, font, lines)
 
 
 def test_microphone(lines, display, draw, image, font):
@@ -131,7 +131,7 @@ def test_microphone(lines, display, draw, image, font):
     except Exception as e:
         print_status(f"Microphone test failed: {e}", False)
         lines.append("Mic: FAIL")
-    update_display(display, draw, font, lines)
+    update_display(display, draw, image, font, lines)
 
 def test_motion_sensor(lines, display, draw, image, font):
     print_header("Motion Sensor Test")
@@ -152,7 +152,7 @@ def test_motion_sensor(lines, display, draw, image, font):
     except Exception as e:
         print_status(f"Motion sensor test failed: {e}", False)
         lines.append("Motion: FAIL")
-    update_display(display, draw, font, lines)
+    update_display(display, draw, image, font, lines)
 
 # --- Main Execution ---
 if __name__ == "__main__":
