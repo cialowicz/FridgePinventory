@@ -93,6 +93,7 @@ def _read_pinctrl(pin: int) -> bool:
     try:
         result = subprocess.run(['pinctrl', 'get', str(pin)], 
                               capture_output=True, text=True, check=True)
+        logging.debug(f"pinctrl output for pin {pin}: {result.stdout.strip()}")
         return 'level=1' in result.stdout
     except subprocess.CalledProcessError as e:
         logging.error(f"Error reading pinctrl: {e}")
@@ -106,23 +107,34 @@ def detect_motion() -> bool:
     global _gpio_initialized
     
     if not is_motion_sensor_supported():
+        logging.debug("Motion sensor not supported or disabled")
         return False
         
     try:
         # Use configured pin if provided, else default constant
         cfg = _get_motion_config()
         pin = cfg.get('pin') if cfg.get('pin') is not None else MOTION_SENSOR_PIN
+        
+        logging.debug(f"Checking motion on pin {pin}, Pi 5: {_is_raspberry_pi_5()}")
 
         if _is_raspberry_pi_5():
             # Use pinctrl for Pi 5
-            return _read_pinctrl(pin)
+            motion_detected = _read_pinctrl(pin)
+            if motion_detected:
+                logging.info(f"Motion detected via pinctrl on pin {pin}")
+            return motion_detected
         else:
             # Use RPi.GPIO for older Pis
             if not _gpio_initialized:
                 GPIO.setmode(GPIO.BCM)
                 GPIO.setup(pin, GPIO.IN)
                 _gpio_initialized = True
-            return bool(GPIO.input(pin))
+                logging.debug(f"GPIO initialized for pin {pin}")
+            
+            motion_detected = bool(GPIO.input(pin))
+            if motion_detected:
+                logging.info(f"Motion detected via GPIO on pin {pin}")
+            return motion_detected
         
     except Exception as e:
         logging.error(f"Error detecting motion: {e}")

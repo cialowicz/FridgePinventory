@@ -8,7 +8,6 @@ import traceback
 logger = logging.getLogger(__name__)
 
 from math import ceil
-from pi_inventory_system.database_manager import db_manager
 from pi_inventory_system.config_manager import config
 
 INKY_AVAILABLE = False
@@ -134,15 +133,18 @@ def create_lozenge(draw, x, y, width, height, item_name, quantity, font):
     
     draw.text((text_x, text_y), text, fill=text_color, font=font)
 
-def display_inventory(display):
-    """Display the current inventory on the Inky display."""
+def display_inventory(display, inventory):
+    """Display the current inventory on the Inky display.
+
+    Args:
+        display: The display object.
+        inventory: A list of tuples (item_name, quantity) to display.
+    """
     if not display:
         logger.warning("No display available for inventory display")
         return None
-    
+
     try:
-        # Get inventory data
-        inventory = db_manager.get_inventory()
         if not inventory:
             logger.info("No inventory to display")
             return None

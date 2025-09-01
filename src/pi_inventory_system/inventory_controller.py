@@ -43,22 +43,29 @@ class InventoryController:
         if not command_type:
             return False, "Command not recognized. Please try again with a valid command."
             
-        success, undo_item_name = self._execute_command(command_type, item)
+        success, new_quantity, undo_item_name = self._execute_command(command_type, item)
         if not success:
             return False, "Command failed to execute. Please try again."
-            
-        # Get current inventory state for feedback
-        inventory = self._db_manager.get_inventory()
-        
+
         # Generate appropriate feedback message
-        feedback = self._generate_feedback(command_type, item, inventory, undo_item_name)
+        feedback = self._generate_feedback(command_type, item, new_quantity, undo_item_name)
         
         # Update display
-        display_inventory(self.display)
+        self.update_display_with_inventory()
         
         return True, feedback
+
+    def update_display_with_inventory(self):
+        """Fetch inventory and update the display."""
+        if not self.display:
+            return
+        try:
+            inventory = self._db_manager.get_inventory()
+            display_inventory(self.display, inventory)
+        except Exception as e:
+            logging.error(f"Failed to update display with inventory: {e}")
     
-    def _generate_feedback(self, command_type: str, item: Optional[InventoryItem], inventory: List[Tuple[str, int]], undo_item_name: Optional[str] = None) -> str:
+    def _generate_feedback(self, command_type: str, item: Optional[InventoryItem], new_quantity: Optional[int], undo_item_name: Optional[str] = None) -> str:
         """Generate feedback message based on command type and current inventory.
         
         Args:
@@ -71,46 +78,28 @@ class InventoryController:
             Feedback message string
         """
         if command_type == "undo":
-            if not undo_item_name:
-                return "Last change has been undone."
-                
-            # Find current quantity of the undone item
-            current_quantity = 0
-            for inv_item_name, qty in inventory:
-                if inv_item_name == undo_item_name:
-                    current_quantity = qty
-                    break
-            
-            if current_quantity == 0:
-                return f"Last change has been undone. {undo_item_name} has been removed from inventory."
-            return f"Last change has been undone. {undo_item_name} now has {current_quantity} in inventory."
-        
-        # For other commands, get current quantity from inventory
-        if not item:
-            return "Command executed successfully."
-            
-        current_quantity = 0
-        for inv_item_name, qty in inventory:
-            if inv_item_name == item.item_name:
-                current_quantity = qty
-                break
-        
-        if current_quantity == 0:
-            return f"{item.item_name} has been removed from inventory."
-        return f"{item.item_name} now has {current_quantity} in inventory."
+            return f"Last change has been undone."
+
+        if item and new_quantity is not None:
+            if new_quantity == 0:
+                return f"{item.item_name} has been removed from inventory."
+            else:
+                return f"{item.item_name} now has {new_quantity} in inventory."
+
+        return "Command executed successfully."
     
-    def _execute_command(self, command_type: str, item: Optional[InventoryItem]) -> Tuple[bool, Optional[str]]:
+    def _execute_command(self, command_type: str, item: Optional[InventoryItem]) -> Tuple[bool, Optional[int], Optional[str]]:
         """
         Execute a command based on its type and item.
-        Returns tuple of (success, undo_item_name) where undo_item_name is only set for undo operations.
+        Returns tuple of (success, new_quantity, undo_item_name) where undo_item_name is only set for undo operations.
         """
         if command_type == "undo":
             success, undo_item_name = self._db_manager.undo_last_change()
-            return success, undo_item_name
-            
+            return success, None, undo_item_name
+
         if not command_type or not item:
-            return False, None
-            
+            return False, None, None
+
         try:
             # Execute the command
             success = False
@@ -120,14 +109,16 @@ class InventoryController:
                 success = self._db_manager.remove_item(item.item_name, item.quantity)
             elif command_type == "set":
                 success = self._db_manager.set_item(item.item_name, item.quantity)
-            
+
             if success:
+                # Get the new quantity
+                new_quantity = self._db_manager.get_current_quantity(item.item_name)
                 # Add to command history
                 self._command_history.append((command_type, item))
-                return True, None
+                return True, new_quantity, None
             else:
-                return False, None
-                
+                return False, None, None
+
         except Exception as e:
             logging.error(f"Error executing command: {e}")
-            return False, None
+            return False, None, None

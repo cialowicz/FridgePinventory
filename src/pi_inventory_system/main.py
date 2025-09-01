@@ -105,14 +105,24 @@ class FridgePinventoryApp:
         display_ok, motion_sensor_ok, audio_ok = self.hardware_status
         
         try:
+            # Display initial inventory on startup
+            if display_ok:
+                self.logger.info("Displaying initial inventory")
+                self.controller.update_display_with_inventory()
+            
             # Main loop
+            motion_check_counter = 0
             while True:
                 # Check for motion
+                motion_check_counter += 1
+                if motion_check_counter % 50 == 0:  # Log every 50 iterations (about every 5 seconds)
+                    self.logger.debug(f"Motion sensor check #{motion_check_counter}, motion_sensor_ok: {motion_sensor_ok}")
+                
                 if motion_sensor_ok and detect_motion():
                     self.logger.info("Motion detected")
                     
                     # Display current inventory
-                    display_inventory(self.display)
+                    self.controller.update_display_with_inventory()
                     
                     # Wait for voice command
                     command = recognize_speech_from_mic()
@@ -124,7 +134,7 @@ class FridgePinventoryApp:
                         self.logger.info(f"Command result: {feedback}")
                         
                         # Update display
-                        display_inventory(self.display)
+                        self.controller.update_display_with_inventory()
                 
                 # Small delay to prevent CPU hogging (configurable)
                 system_config = self.config_manager.get_system_config()

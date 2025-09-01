@@ -47,7 +47,8 @@ def test_process_command_successful_add(controller):
     """Test processing a successful add command."""
     item = InventoryItem(item_name="chicken", quantity=1)
     controller.db.add_item.return_value = True
-    controller.db.get_current_quantity.return_value = 1
+    # Mock the new return value for _execute_command
+    controller._db_manager.get_current_quantity.return_value = 1
 
     with patch('pi_inventory_system.inventory_controller.interpret_command',
               return_value=("add", item)), \
@@ -62,7 +63,7 @@ def test_process_command_successful_remove(controller):
     """Test processing a successful remove command."""
     item = InventoryItem(item_name="chicken", quantity=1)
     controller.db.remove_item.return_value = True
-    controller.db.get_current_quantity.return_value = 0
+    controller._db_manager.get_current_quantity.return_value = 0
 
     with patch('pi_inventory_system.inventory_controller.interpret_command',
               return_value=("remove", item)), \
@@ -75,14 +76,14 @@ def test_process_command_successful_remove(controller):
 
 def test_process_command_successful_undo(controller):
     """Test processing a successful undo command."""
-    controller.db.undo_last_change.return_value = ("chicken", 2)
+    controller._db_manager.undo_last_change.return_value = (True, "chicken")
 
     with patch('pi_inventory_system.inventory_controller.interpret_command',
               return_value=("undo", None)), \
          patch('pi_inventory_system.inventory_controller.display_inventory'):
         success, feedback = controller.process_command("undo")
         assert success
-        assert feedback == "Last change has been undone. chicken now has 2 in inventory."
+        assert feedback == "Last change has been undone."
         controller.db.undo_last_change.assert_called_once()
 
 
@@ -90,7 +91,7 @@ def test_process_command_successful_set(controller):
     """Test processing a successful set command."""
     item = InventoryItem(item_name="chicken", quantity=5)
     controller.db.set_item.return_value = True
-    controller.db.get_current_quantity.return_value = 5
+    controller._db_manager.get_current_quantity.return_value = 5
 
     with patch('pi_inventory_system.inventory_controller.interpret_command',
               return_value=("set", item)), \
