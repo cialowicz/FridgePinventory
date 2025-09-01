@@ -61,11 +61,15 @@ class FridgePinventoryApp:
         """
         self.logger.info("Starting FridgePinventory initialization...")
         
-        # Run startup diagnostics
-        self.hardware_status = self._run_diagnostics()
+        # Run startup diagnostics and get display instance
+        display_ok, motion_sensor_ok, audio_ok, display_instance = self._run_diagnostics()
+        self.hardware_status = (display_ok, motion_sensor_ok, audio_ok)
         
-        # Initialize display
-        self.display = initialize_display()
+        # Use display instance from diagnostics to avoid GPIO conflicts
+        self.display = display_instance
+        if not self.display and display_ok:
+            self.logger.warning("Display reported OK but no instance returned, attempting to initialize...")
+            self.display = initialize_display()
         
         # Initialize inventory controller with our database manager
         self.controller = InventoryController(self.db_manager)
@@ -73,13 +77,13 @@ class FridgePinventoryApp:
         self.logger.info("FridgePinventory initialization complete")
         return True
     
-    def _run_diagnostics(self) -> Tuple[bool, bool, bool]:
+    def _run_diagnostics(self) -> Tuple[bool, bool, bool, object]:
         """Run startup diagnostics and log results.
         
         Returns:
-            Tuple of (display_ok, motion_sensor_ok, audio_ok)
+            Tuple of (display_ok, motion_sensor_ok, audio_ok, display_instance)
         """
-        display_ok, motion_sensor_ok, audio_ok = run_startup_diagnostics()
+        display_ok, motion_sensor_ok, audio_ok, display_instance = run_startup_diagnostics()
         
         if not display_ok:
             self.logger.error("Display initialization failed. Some features may not work.")
@@ -90,7 +94,7 @@ class FridgePinventoryApp:
         if not audio_ok:
             self.logger.error("Audio initialization failed. Some features may not work.")
         
-        return display_ok, motion_sensor_ok, audio_ok
+        return display_ok, motion_sensor_ok, audio_ok, display_instance
     
     def run(self) -> None:
         """Run the main application loop."""

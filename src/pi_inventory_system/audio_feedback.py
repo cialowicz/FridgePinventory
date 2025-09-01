@@ -1,6 +1,7 @@
 # Module for audio feedback
 
 import logging
+import os
 import traceback
 from .config_manager import config
 
@@ -91,12 +92,23 @@ try:
             audio_config = config.get_audio_config()
             sound_config = audio_config.get('feedback_sounds', {})
             
+            # Get the project root directory (assuming this file is in src/pi_inventory_system/)
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            project_root = os.path.join(current_dir, '..', '..')
+            project_root = os.path.abspath(project_root)
+            
             if success:
                 sound_file = sound_config.get('success_sound', 'sounds/success.wav')
+                if not os.path.isabs(sound_file):
+                    sound_file = os.path.join(project_root, 'assets', sound_file)
                 playsound(sound_file)
+                logger.info(f"Played success sound: {sound_file}")
             else:
                 sound_file = sound_config.get('error_sound', 'sounds/error.wav')
+                if not os.path.isabs(sound_file):
+                    sound_file = os.path.join(project_root, 'assets', sound_file)
                 playsound(sound_file)
+                logger.info(f"Played error sound: {sound_file}")
         except Exception as e:
             logger.warning(f"Failed to play sound: {e}")
             print("Success" if success else "Error")
