@@ -3,6 +3,7 @@ from typing import List, Tuple, Optional
 from .database_manager import get_default_db_manager
 from .command_processor import interpret_command
 from .display_manager import display_inventory
+from .item_normalizer import ITEM_SYNONYMS
 from .inventory_item import InventoryItem
 
 
@@ -56,12 +57,26 @@ class InventoryController:
         return True, feedback
 
     def update_display_with_inventory(self):
-        """Fetch inventory and update the display."""
+        """Fetch inventory, merge with all categories, and update the display."""
         if not self.display:
             return
         try:
-            inventory = self._db_manager.get_inventory()
-            display_inventory(self.display, inventory)
+            # Get the actual inventory from the database and convert to a dict for easy lookup
+            db_inventory_list = self._db_manager.get_inventory()
+            db_inventory = dict(db_inventory_list)
+
+            # Get all possible item categories from the normalizer
+            all_categories = list(ITEM_SYNONYMS.keys())
+
+            # Create a comprehensive list, showing 0 for items not in the database inventory
+            display_list = []
+            for category in sorted(all_categories):
+                quantity = db_inventory.get(category, 0)
+                display_list.append((category, quantity))
+
+            # Call the display function with the complete, sorted list
+            display_inventory(self.display, display_list)
+            logging.info(f"Updated display with {len(display_list)} items.")
         except Exception as e:
             logging.error(f"Failed to update display with inventory: {e}")
     

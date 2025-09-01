@@ -52,7 +52,8 @@ def test_process_command_successful_add(controller):
 
     with patch('pi_inventory_system.inventory_controller.interpret_command',
               return_value=("add", item)), \
-         patch('pi_inventory_system.inventory_controller.display_inventory'):
+         patch('pi_inventory_system.inventory_controller.display_inventory'), \
+         patch('pi_inventory_system.inventory_controller.ITEM_SYNONYMS', {'chicken': []}):
         success, feedback = controller.process_command("add chicken")
         assert success
         assert feedback == "chicken now has 1 in inventory."
@@ -67,7 +68,8 @@ def test_process_command_successful_remove(controller):
 
     with patch('pi_inventory_system.inventory_controller.interpret_command',
               return_value=("remove", item)), \
-         patch('pi_inventory_system.inventory_controller.display_inventory'):
+         patch('pi_inventory_system.inventory_controller.display_inventory'), \
+         patch('pi_inventory_system.inventory_controller.ITEM_SYNONYMS', {'chicken': []}):
         success, feedback = controller.process_command("remove chicken")
         assert success
         assert feedback == "chicken has been removed from inventory."
@@ -80,7 +82,8 @@ def test_process_command_successful_undo(controller):
 
     with patch('pi_inventory_system.inventory_controller.interpret_command',
               return_value=("undo", None)), \
-         patch('pi_inventory_system.inventory_controller.display_inventory'):
+         patch('pi_inventory_system.inventory_controller.display_inventory'), \
+         patch('pi_inventory_system.inventory_controller.ITEM_SYNONYMS', {'chicken': []}):
         success, feedback = controller.process_command("undo")
         assert success
         assert feedback == "Last change has been undone."
@@ -95,11 +98,42 @@ def test_process_command_successful_set(controller):
 
     with patch('pi_inventory_system.inventory_controller.interpret_command',
               return_value=("set", item)), \
-         patch('pi_inventory_system.inventory_controller.display_inventory'):
+         patch('pi_inventory_system.inventory_controller.display_inventory'), \
+         patch('pi_inventory_system.inventory_controller.ITEM_SYNONYMS', {'chicken': []}):
         success, feedback = controller.process_command("set chicken to 5")
         assert success
         assert feedback == "chicken now has 5 in inventory."
         controller.db.set_item.assert_called_with(item.item_name, item.quantity)
+
+
+def test_update_display_with_inventory(controller):
+    """Test that the display is updated with a full, sorted list of all categories."""
+    # Mock the database to return a partial inventory
+    controller.db.get_inventory.return_value = [("chicken breast", 2), ("steak", 1)]
+
+    # Mock the item normalizer's categories
+    mock_categories = {
+        'steak': [],
+        'ground beef': [],
+        'chicken breast': [],
+    }
+
+    with patch('pi_inventory_system.inventory_controller.display_inventory') as mock_display_inventory, \
+         patch('pi_inventory_system.inventory_controller.ITEM_SYNONYMS', mock_categories):
+
+        controller.update_display_with_inventory()
+
+        # Expected list should be sorted by category name
+        expected_display_list = [
+            ('chicken breast', 2),
+            ('ground beef', 0),
+            ('steak', 1)
+        ]
+
+        mock_display_inventory.assert_called_once()
+        # Check the second argument of the call (the inventory list)
+        actual_list = mock_display_inventory.call_args[0][1]
+        assert actual_list == expected_display_list
 
 
 @pytest.mark.skip(reason="Loop-related tests are not critical and can be flaky")
