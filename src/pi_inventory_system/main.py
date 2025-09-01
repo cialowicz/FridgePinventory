@@ -112,6 +112,7 @@ class FridgePinventoryApp:
             
             # Main loop
             motion_check_counter = 0
+            motion_detected_in_cycle = False
             while True:
                 # Check for motion
                 motion_check_counter += 1
@@ -121,8 +122,11 @@ class FridgePinventoryApp:
                 if motion_sensor_ok and detect_motion():
                     self.logger.info("Motion detected")
                     
-                    # Display current inventory
-                    self.controller.update_display_with_inventory()
+                    # On first detection, update the display
+                    if not motion_detected_in_cycle:
+                        self.logger.info("Motion detected, updating display.")
+                        self.controller.update_display_with_inventory()
+                        motion_detected_in_cycle = True
                     
                     # Wait for voice command
                     command = recognize_speech_from_mic()
@@ -136,6 +140,12 @@ class FridgePinventoryApp:
                         # Update display
                         self.controller.update_display_with_inventory()
                 
+                else:
+                    # Reset motion detection flag when no motion is detected
+                    if motion_detected_in_cycle:
+                        self.logger.info("Motion ended, resetting cycle.")
+                        motion_detected_in_cycle = False
+
                 # Small delay to prevent CPU hogging (configurable)
                 system_config = self.config_manager.get_system_config()
                 delay = system_config.get('main_loop_delay', 0.1)
