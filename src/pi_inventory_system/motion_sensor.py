@@ -91,7 +91,8 @@ def is_motion_sensor_supported() -> bool:
 def _read_pinctrl(pin: int) -> bool:
     """Read GPIO pin state using pinctrl."""
     try:
-        result = subprocess.run(['pinctrl', 'get', str(pin)], 
+        # Note: sudo is required for pinctrl on Pi 5
+        result = subprocess.run(['sudo', 'pinctrl', 'get', str(pin)], 
                               capture_output=True, text=True, check=True)
         logging.debug(f"pinctrl output for pin {pin}: {result.stdout.strip()}")
         return 'level=1' in result.stdout
@@ -118,7 +119,16 @@ def detect_motion() -> bool:
         logging.debug(f"Checking motion on pin {pin}, Pi 5: {_is_raspberry_pi_5()}")
 
         if _is_raspberry_pi_5():
-            # Use pinctrl for Pi 5
+            # On Pi 5, we use pinctrl and must initialize the pin once.
+            if not _gpio_initialized:
+                try:
+                    logging.info(f"Configuring GPIO {pin} for Pi 5 as input with pull-down.")
+                    subprocess.run(['sudo', 'pinctrl', 'set', str(pin), 'ip', 'pd'], check=True)
+                    _gpio_initialized = True
+                except Exception as e:
+                    logging.error(f"Failed to configure GPIO pin {pin} using pinctrl: {e}")
+                    return False # Can't proceed if pin setup fails
+
             motion_detected = _read_pinctrl(pin)
             if motion_detected:
                 logging.info(f"Motion detected via pinctrl on pin {pin}")
