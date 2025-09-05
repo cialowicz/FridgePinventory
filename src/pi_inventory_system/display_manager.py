@@ -112,6 +112,7 @@ def display_inventory(display, inventory, config_manager):
     Args:
         display: The display object.
         inventory: A list of tuples (item_name, quantity) to display.
+        config_manager: Configuration manager instance
     """
     if not display:
         logger.warning("No display available for inventory display")
@@ -126,6 +127,8 @@ def display_inventory(display, inventory, config_manager):
         # Create a new image with 800x480 resolution
         image = Image.new("L", (display.WIDTH, display.HEIGHT), 255)  # White background
         draw = ImageDraw.Draw(image)
+        
+
         
         if not inventory:
             logger.info("No inventory to display, showing empty message")
@@ -187,7 +190,7 @@ def display_inventory(display, inventory, config_manager):
                     logger.warning(f"Invalid inventory item format at index {i}: {item}")
                     continue
                 
-                item_name, quantity = item[0], item[1]
+                item_name, quantity = item
                 
                 # Validate and convert data
                 if not isinstance(item_name, str):

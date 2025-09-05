@@ -1,60 +1,103 @@
-# Tests for motion sensor module
+# Tests for motion sensor manager
 
 import pytest
 from unittest.mock import patch, MagicMock
-from pi_inventory_system.motion_sensor import (
-    detect_motion,
-    is_motion_sensor_supported,
-    MOTION_SENSOR_PIN
-)
+import sys
+from pi_inventory_system.motion_sensor_manager import MotionSensorManager
 
-def test_motion_detected(mock_gpio_environment):
-    """Test when motion is detected."""
-    _, mock_gpio = mock_gpio_environment
-    mock_gpio.input.return_value = 1
-    assert detect_motion()
-    mock_gpio.input.assert_called_once_with(MOTION_SENSOR_PIN)
+@pytest.fixture
+def mock_config_manager():
+    """Provides a mock config manager for tests."""
+    config = MagicMock()
+    config.get_hardware_config.return_value = {
+        'motion_sensor': {'pin': 4, 'enabled': True}
+    }
+    return config
 
-def test_no_motion_detected(mock_gpio_environment):
-    """Test when no motion is detected."""
-    _, mock_gpio = mock_gpio_environment
-    mock_gpio.input.return_value = 0
-    assert not detect_motion()
-    mock_gpio.input.assert_called_once_with(MOTION_SENSOR_PIN)
-
-def test_gpio_error_handling(mock_gpio_environment):
-    """Test error handling when GPIO fails."""
-    _, mock_gpio = mock_gpio_environment
-    mock_gpio.input.side_effect = Exception("GPIO error")
-    assert not detect_motion()
-    mock_gpio.input.assert_called_once_with(MOTION_SENSOR_PIN)
-
-def test_motion_sensor_supported_with_gpio(mock_gpio_environment):
-    """Test motion sensor support detection with GPIO available."""
-    assert is_motion_sensor_supported()
-
-def test_motion_sensor_not_supported_without_gpio(mock_gpio_environment):
-    """Test motion sensor support detection without GPIO."""
-    mock_is_pi, _ = mock_gpio_environment
-    mock_is_pi.return_value = False  # Simulate not running on a Pi
-    assert not is_motion_sensor_supported()
-
-def test_motion_sensor_initialization(mock_gpio_environment):
-    """Test motion sensor initialization."""
-    _, mock_gpio = mock_gpio_environment
-    # Reset GPIO mock to clear any previous calls
-    mock_gpio.reset_mock()
+@patch('pi_inventory_system.motion_sensor_manager.MotionSensorManager._check_raspberry_pi_5', return_value=False)
+@patch('pi_inventory_system.motion_sensor_manager.MotionSensorManager._check_raspberry_pi', return_value=True)
+def test_detect_motion_on_pi(mock_check_pi, mock_check_pi5, mock_config_manager):
+    """Test motion detection on a non-Pi5 Raspberry Pi."""
+    # Create mock GPIO module that will be returned by the import
+    mock_gpio = MagicMock()
+    mock_gpio.BCM = 'BCM'
+    mock_gpio.IN = 'IN'
     
-    # Call detect_motion to trigger initialization
-    detect_motion()
+    # Patch the _init_gpio_module method to set our mock directly
+    def mock_init_gpio(self):
+        self._gpio = mock_gpio
     
-    # Verify GPIO initialization
-    mock_gpio.setmode.assert_called_once_with(mock_gpio.BCM)
-    mock_gpio.setup.assert_called_once_with(MOTION_SENSOR_PIN, mock_gpio.IN)
+    with patch.object(MotionSensorManager, '_init_gpio_module', mock_init_gpio):
+        manager = MotionSensorManager(config_manager=mock_config_manager)
+        
+        # Test motion detected
+        mock_gpio.input.return_value = True
+        assert manager.detect_motion() is True
+        mock_gpio.setmode.assert_called_once_with('BCM')
+        mock_gpio.setup.assert_called_once_with(4, 'IN')
+        mock_gpio.input.assert_called_once_with(4)
+
+        # Test no motion
+        mock_gpio.reset_mock()
+        mock_gpio.input.return_value = False
+        assert manager.detect_motion() is False
+        # Initialization should not happen again
+        mock_gpio.setmode.assert_not_called()
+        mock_gpio.setup.assert_not_called()
+        assert mock_gpio.input.call_count == 1
+
+@patch('pi_inventory_system.motion_sensor_manager.MotionSensorManager._check_raspberry_pi', return_value=False)
+def test_motion_sensor_unsupported_on_non_pi(mock_check_pi, mock_config_manager):
+    """Test that motion sensor is not supported on non-Pi systems."""
+    manager = MotionSensorManager(config_manager=mock_config_manager)
+    assert manager.is_supported() is False
+    assert manager.detect_motion() is False
+
+@patch('pi_inventory_system.motion_sensor_manager.MotionSensorManager._check_raspberry_pi_5', return_value=True)
+@patch('pi_inventory_system.motion_sensor_manager.MotionSensorManager._check_raspberry_pi', return_value=True)
+@patch('pi_inventory_system.motion_sensor_manager.subprocess.run')
+def test_detect_motion_on_pi5(mock_subprocess, mock_check_pi, mock_check_pi5, mock_config_manager):
+    """Test motion detection on Raspberry Pi 5 using pinctrl."""
+    manager = MotionSensorManager(config_manager=mock_config_manager)
+
+    # Mock setup command success
+    mock_subprocess.return_value = MagicMock(stdout='level=1')
+    
+    # Test motion detected
+    assert manager.detect_motion() is True
+    # Check that setup and get were called
+    assert mock_subprocess.call_count == 2
+    assert 'pinctrl' in mock_subprocess.call_args_list[0].args[0]
+    assert 'set' in mock_subprocess.call_args_list[0].args[0]
+    assert 'get' in mock_subprocess.call_args_list[1].args[0]
+
+    # Test no motion
+    mock_subprocess.reset_mock()
+    mock_subprocess.return_value = MagicMock(stdout='level=0')
+    assert manager.detect_motion() is False
+    # Initialization should not happen again, only 'get' should be called
+    assert mock_subprocess.call_count == 1
+    assert 'get' in mock_subprocess.call_args_list[0].args[0]
+
+    # Additional test to ensure correct initialization
+    mock_subprocess.reset_mock()
+    mock_subprocess.return_value = MagicMock(stdout='level=1')
+    assert manager.detect_motion() is True
+    # Check that only 'get' is called after initialization
+    assert mock_subprocess.call_count == 1
+    assert 'get' in mock_subprocess.call_args_list[0].args[0]
+
+    # Additional test to ensure correct initialization
+    mock_subprocess.reset_mock()
+    mock_subprocess.return_value = MagicMock(stdout='level=0')
+    assert manager.detect_motion() is False
+    # Check that only 'get' is called after initialization
+    assert mock_subprocess.call_count == 1
+    assert 'get' in mock_subprocess.call_args_list[0].args[0]
 
 @pytest.mark.skip(reason="Hardware-dependent test")
 def test_real_motion_detection():
     """Test actual motion detection with real hardware."""
     # This test requires actual hardware and should be skipped in CI
-    result = detect_motion()
+    result = MotionSensorManager().detect_motion()
     assert isinstance(result, bool)

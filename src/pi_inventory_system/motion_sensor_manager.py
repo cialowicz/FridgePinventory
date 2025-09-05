@@ -5,7 +5,7 @@ import logging
 import subprocess
 import threading
 from typing import Optional
-from .config_manager import config
+
 
 class MotionSensorManager:
     """Manages motion sensor with proper encapsulation and thread safety."""
@@ -17,7 +17,7 @@ class MotionSensorManager:
             pin: GPIO pin number. If None, uses config or default.
             config_manager: Configuration manager instance.
         """
-        self._config = config_manager or config
+        self._config = config_manager
         self._lock = threading.Lock()
         self._initialized = False
         self._gpio = None
