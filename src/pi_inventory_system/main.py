@@ -12,19 +12,12 @@ from pi_inventory_system.config_manager import get_default_config_manager
 from pi_inventory_system.database_manager import create_database_manager
 from pi_inventory_system.diagnostics import run_startup_diagnostics
 from pi_inventory_system.display_manager import initialize_display, display_inventory, cleanup_display
-from pi_inventory_system.motion_sensor import detect_motion, cleanup
-from pi_inventory_system.voice_recognition import recognize_speech_from_mic, cleanup_audio
 from pi_inventory_system.inventory_controller import InventoryController
-from pi_inventory_system.audio_feedback import AudioFeedback
+from pi_inventory_system.motion_sensor_manager import MotionSensorManager
+from pi_inventory_system.voice_recognition_manager import VoiceRecognitionManager
+from pi_inventory_system.audio_feedback_manager import AudioFeedbackManager
 
-# Try to import the new managers if available
-try:
-    from pi_inventory_system.motion_sensor_manager import MotionSensorManager
-    from pi_inventory_system.voice_recognition_manager import VoiceRecognitionManager
-    from pi_inventory_system.audio_feedback_manager import AudioFeedbackManager
-    USE_NEW_MANAGERS = True
-except ImportError:
-    USE_NEW_MANAGERS = False
+
 
 class FridgePinventoryApp:
     """Main application class for FridgePinventory system."""
@@ -37,7 +30,7 @@ class FridgePinventoryApp:
             db_path: Path to database file. If None, uses config default.
         """
         # Initialize configuration and database managers
-        self.config_manager = get_default_config_manager() if config_path is None else get_default_config_manager()
+        self.config_manager = get_default_config_manager()
         self.db_manager = create_database_manager(db_path)
         
         # Initialize logging
@@ -49,15 +42,9 @@ class FridgePinventoryApp:
         self.display = None
         self.hardware_status = None
         
-        # Use new managers if available
-        if USE_NEW_MANAGERS:
-            self.motion_manager = MotionSensorManager(config_manager=self.config_manager)
-            self.voice_manager = VoiceRecognitionManager(config_manager=self.config_manager)
-            self.audio_feedback = AudioFeedbackManager(config_manager=self.config_manager)
-        else:
-            self.motion_manager = None
-            self.voice_manager = None
-            self.audio_feedback = AudioFeedback()
+        self.motion_manager = MotionSensorManager(config_manager=self.config_manager)
+        self.voice_manager = VoiceRecognitionManager(config_manager=self.config_manager)
+        self.audio_feedback = AudioFeedbackManager(config_manager=self.config_manager)
         
         # Application state
         self.running = False
@@ -98,7 +85,7 @@ class FridgePinventoryApp:
         self.logger.info("Starting FridgePinventory initialization...")
         
         # Run startup diagnostics and get display instance
-        display_ok, motion_sensor_ok, audio_ok, display_instance = self._run_diagnostics()
+        display_ok, motion_sensor_ok, audio_ok, display_instance = run_startup_diagnostics(self.config_manager)
         self.hardware_status = (display_ok, motion_sensor_ok, audio_ok)
         
         # Use display instance from diagnostics to avoid GPIO conflicts
@@ -190,10 +177,7 @@ class FridgePinventoryApp:
                     motion_detected = False
                     if self.last_motion_time is None or \
                        (current_time - self.last_motion_time) > self.motion_cooldown_seconds:
-                        if USE_NEW_MANAGERS and self.motion_manager:
-                            motion_detected = self.motion_manager.detect_motion()
-                        else:
-                            motion_detected = detect_motion()
+                        motion_detected = self.motion_manager.detect_motion()
                     
                     if motion_detected:
                         self.logger.info("Motion detected")
@@ -257,17 +241,12 @@ class FridgePinventoryApp:
             
             # Cleanup
             try:
-                # Clean up managers if using new ones
-                if USE_NEW_MANAGERS:
-                    if self.motion_manager:
-                        self.motion_manager.cleanup()
-                    if self.voice_manager:
-                        self.voice_manager.cleanup()
-                    if hasattr(self.audio_feedback, 'cleanup'):
-                        self.audio_feedback.cleanup()
-                else:
-                    cleanup()  # GPIO cleanup
-                    cleanup_audio()  # Audio cleanup
+                if self.motion_manager:
+                    self.motion_manager.cleanup()
+                if self.voice_manager:
+                    self.voice_manager.cleanup()
+                if hasattr(self.audio_feedback, 'cleanup'):
+                    self.audio_feedback.cleanup()
                 
                 # Clean up display
                 if self.display:
@@ -284,10 +263,7 @@ class FridgePinventoryApp:
     def _handle_voice_command(self, display_ok: bool) -> None:
         """Handle voice command in a separate thread."""
         try:
-            if USE_NEW_MANAGERS and self.voice_manager:
-                command = self.voice_manager.recognize_speech()
-            else:
-                command = recognize_speech_from_mic()
+            command = self.voice_manager.recognize_speech()
             
             if command and self.running:
                 self.logger.info(f"Command received: {command}")

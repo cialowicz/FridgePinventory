@@ -46,7 +46,10 @@ def test_display(lines, font):
         import sys
         import os
         # Add the project source to path
-        sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__)))
+        src_path = os.path.join(project_root, 'src')
+        if src_path not in sys.path:
+            sys.path.insert(0, src_path)
         from pi_inventory_system.waveshare_display import WaveshareDisplay
         from PIL import Image, ImageDraw
         
@@ -104,11 +107,11 @@ def test_speaker(lines):
     print_header("Speaker Test")
     try:
         from playsound import playsound
-        sound_file = os.path.join(os.path.dirname(__file__), 'assets', 'sounds', 'success.wav')
+        sound_file = os.path.join(os.path.abspath(os.path.dirname(__file__)), 'assets', 'sounds', 'success.wav')
         if not os.path.exists(sound_file):
-            os.makedirs(os.path.dirname(sound_file), exist_ok=True)
-            with open(sound_file, 'w') as f: pass # Create dummy file
-            print("NOTE: success.wav not found, using dummy file. Sound may not play.")
+            print_status(f"Sound file not found at {sound_file}", False)
+            lines.append("Speaker: FAIL (file missing)")
+            return
 
         print("Playing test sound...", end="", flush=True)
         playsound(sound_file)
@@ -194,15 +197,17 @@ def test_motion_sensor(lines):
         else:
             print("DEBUG: Using RPi.GPIO method for older Pi.")
             import RPi.GPIO as GPIO
-            GPIO.setmode(GPIO.BCM)
-            GPIO.setup(MOTION_SENSOR_PIN, GPIO.IN)
-            for _ in range(10):
-                if GPIO.input(MOTION_SENSOR_PIN):
-                    motion_detected = True
-                    break
-                time.sleep(0.5)
-                print(".", end="", flush=True)
-            GPIO.cleanup()
+            try:
+                GPIO.setmode(GPIO.BCM)
+                GPIO.setup(MOTION_SENSOR_PIN, GPIO.IN)
+                for _ in range(10):
+                    if GPIO.input(MOTION_SENSOR_PIN):
+                        motion_detected = True
+                        break
+                    time.sleep(0.5)
+                    print(".", end="", flush=True)
+            finally:
+                GPIO.cleanup()
 
         print()
         print_status("Motion sensor check", motion_detected)

@@ -130,47 +130,40 @@ class ConfigManager:
             }
         }
     
-    def _apply_env_overrides(self) -> None:
+    def _convert_env_value(self, key: str, value: str) -> Any:
+        """Convert environment variable string to appropriate type."""
+        if key in ['size', 'fallback_size', 'items_per_row', 'lozenge_height', 'spacing', 'margin', 'low_stock_threshold', 'timeout', 'phrase_time_limit', 'rate', 'device_index', 'pin', 'grayscale_levels', 'cache_size']:
+            try:
+                return int(value)
+            except ValueError:
+                logger.warning(f"Invalid integer value for {key}: {value}")
+                return None
+        elif key in ['similarity_threshold', 'volume', 'main_loop_delay']:
+            try:
+                return float(value)
+            except ValueError:
+                logger.warning(f"Invalid float value for {key}: {value}")
+                return None
+        elif key in ['enabled', 'auto_detect', 'enable_diagnostics', 'enable_spacy', 'wal_mode']:
+            return value.lower() in ('true', '1', 'yes', 'on')
+        return value
+
+    def _apply_env_overrides(self):
         """Apply environment variable overrides to configuration."""
-        env_mappings = {
-            'FRIDGEP_DB_PATH': ['database', 'path'],
-            'FRIDGEP_LOG_LEVEL': ['system', 'log_level'],
-            'FRIDGEP_FONT_PATH': ['display', 'font', 'path'],
-            'FRIDGEP_FONT_SIZE': ['display', 'font', 'size'],
-            'FRIDGEP_AUDIO_TIMEOUT': ['audio', 'voice_recognition', 'timeout'],
-            'FRIDGEP_SIMILARITY_THRESHOLD': ['commands', 'similarity_threshold'],
-            'FRIDGEP_MAIN_LOOP_DELAY': ['system', 'main_loop_delay'],
-            'FRIDGEP_SPACY_MODEL': ['nlp', 'spacy_model'],
-            'FRIDGEP_DB_TIMEOUT': ['database_advanced', 'timeout'],
-            'FRIDGEP_DB_CACHE_SIZE': ['database_advanced', 'cache_size'],
-        }
-        
-        for env_var, config_path in env_mappings.items():
-            env_value = os.getenv(env_var)
-            if env_value is not None:
-                # Convert string values to appropriate types
-                if config_path[-1] in ['size', 'timeout', 'pin', 'cache_size']:
-                    try:
-                        env_value = int(env_value)
-                    except ValueError:
-                        logger.warning(f"Invalid integer value for {env_var}: {env_value}")
-                        continue
-                elif config_path[-1] in ['similarity_threshold', 'volume', 'main_loop_delay', 'timeout']:
-                    try:
-                        env_value = float(env_value)
-                    except ValueError:
-                        logger.warning(f"Invalid float value for {env_var}: {env_value}")
-                        continue
-                elif config_path[-1] in ['enabled', 'auto_detect', 'enable_diagnostics', 'enable_spacy', 'wal_mode']:
-                    env_value = env_value.lower() in ('true', '1', 'yes', 'on')
+        for env_var, env_value in os.environ.items():
+            if env_var.startswith("FRIDGE_"):
+                config_path = env_var[7:].lower().split('__')
                 
-                # Set the value in config
+                converted_value = self._convert_env_value(config_path[-1], env_value)
+                if converted_value is None:
+                    continue
+                
                 current = self._config
                 for key in config_path[:-1]:
                     current = current.setdefault(key, {})
-                current[config_path[-1]] = env_value
-                logger.info(f"Applied environment override: {env_var} = {env_value}")
-    
+                current[config_path[-1]] = converted_value
+                logger.info(f"Applied environment override: {env_var} = {converted_value}")
+
     def get(self, *keys: str, default: Any = None) -> Any:
         """Get a configuration value using dot notation.
         

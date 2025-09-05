@@ -5,8 +5,14 @@ Pi Inventory System package
 __version__ = "0.1.0"
 
 # Import and expose the main public API
-from .database_manager import db_manager
+from .config_manager import get_default_config_manager
+from .database_manager import create_database_manager
 from .inventory_controller import InventoryController
+from .audio_feedback_manager import AudioFeedbackManager
+
+# Initialize default managers
+default_config_manager = get_default_config_manager()
+db_manager = create_database_manager(default_config_manager)
 
 from .display_manager import (
     initialize_display,
@@ -36,11 +42,6 @@ from .command_processor import (
     interpret_command
 )
 
-from .audio_feedback import (
-    play_feedback_sound,
-    output_confirmation
-)
-
 __all__ = [
     # Singletons and Controllers
     'db_manager',
@@ -67,8 +68,4 @@ __all__ = [
     
     # Command processing functions
     'interpret_command',
-    
-    # Audio feedback functions
-    'play_feedback_sound',
-    'output_confirmation'
-] 
+]

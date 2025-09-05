@@ -10,16 +10,16 @@ import time
 logger = logging.getLogger(__name__)
 
 from math import ceil
-from pi_inventory_system.config_manager import config
+
 from PIL import Image, ImageDraw, ImageFont
 
 # Import the Waveshare display driver
 from .waveshare_display import WaveshareDisplay
 
-def _is_raspberry_pi():
+def _is_raspberry_pi(config_manager):
     """Check if we're running on a Raspberry Pi."""
     # Get platform configuration
-    platform_config = config.get_platform_config()
+    platform_config = config_manager.get_platform_config()
     model_file = platform_config.get('raspberry_pi_model_file', '/proc/device-tree/model')
     required_string = platform_config.get('required_pi_string', 'raspberry pi')
     
@@ -34,20 +34,16 @@ def _is_raspberry_pi():
             return False
     return False
 
-# Initialize display support
-is_raspberry_pi = _is_raspberry_pi()
-logger.info(f"Raspberry Pi detected: {is_raspberry_pi}")
-
-def is_display_supported() -> bool:
+def is_display_supported(config_manager) -> bool:
     """Checks if the display is supported on the current platform."""
-    supported = is_raspberry_pi
+    supported = _is_raspberry_pi(config_manager)
     logger.info(f"Display supported: {supported}")
     return supported
 
-def initialize_display():
+def initialize_display(config_manager):
     """Initializes the Waveshare e-Paper display if supported."""
     logger.info("Attempting to initialize Waveshare display...")
-    if not is_display_supported():
+    if not is_display_supported(config_manager):
         logger.warning("Display not supported on this platform")
         return None
     
@@ -110,7 +106,7 @@ def create_lozenge(draw, x, y, width, height, item_name, quantity, font, colors)
     
     draw.text((text_x, text_y), text, fill=text_color, font=font)
 
-def display_inventory(display, inventory):
+def display_inventory(display, inventory, config_manager):
     """Display the current inventory on the Waveshare display.
 
     Args:
@@ -134,7 +130,7 @@ def display_inventory(display, inventory):
         if not inventory:
             logger.info("No inventory to display, showing empty message")
             # Draw "No items" message
-            font = _load_font(size=32)
+            font = _load_font(config_manager, size=32)
             text = "No items in inventory"
             text_bbox = draw.textbbox((0, 0), text, font=font)
             text_width = text_bbox[2] - text_bbox[0]
@@ -146,13 +142,14 @@ def display_inventory(display, inventory):
             return True
         
         # Load font from configuration
-        font = _load_font()
+        font_size = config_manager.get_layout_config().get('font_size', 24)
+        font = _load_font(config_manager, size=font_size)
         
         # Get color configuration
-        color_config = config.get('display', 'colors', default={})
+        color_config = config_manager.get_display_config().get('colors', {})
         
         # Calculate layout for 800x480 display
-        layout_config = config.get_layout_config()
+        layout_config = config_manager.get_layout_config()
         
         # Optimized layout for 800x480
         # Can fit more items with better resolution
@@ -171,7 +168,7 @@ def display_inventory(display, inventory):
         max_items = rows_per_page * items_per_row
         
         # Draw header
-        header_font = _load_font(size=24)
+        header_font = _load_font(config_manager, size=24)
         header_text = "Fridge Inventory"
         header_bbox = draw.textbbox((0, 0), header_text, font=header_font)
         header_width = header_bbox[2] - header_bbox[0]
@@ -223,7 +220,7 @@ def display_inventory(display, inventory):
         
         # Add timestamp at bottom
         timestamp = time.strftime("%Y-%m-%d %H:%M")
-        timestamp_font = _load_font(size=14)
+        timestamp_font = _load_font(config_manager, size=14)
         timestamp_bbox = draw.textbbox((0, 0), timestamp, font=timestamp_font)
         timestamp_width = timestamp_bbox[2] - timestamp_bbox[0]
         timestamp_x = display.WIDTH - timestamp_width - 10
@@ -240,7 +237,7 @@ def display_inventory(display, inventory):
         logger.error(traceback.format_exc())
         return False
 
-def _load_font(size=18):
+def _load_font(config_manager, size=18):
     """Load a font with fallback options.
     
     Args:
@@ -249,7 +246,7 @@ def _load_font(size=18):
     Returns:
         PIL ImageFont instance
     """
-    font_config = config.get_font_config()
+    font_config = config_manager.get_font_config()
     font_path = font_config.get('path', '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf')
     
     font_paths_to_try = [
@@ -294,7 +291,7 @@ def cleanup_display(display):
     except Exception as e:
         logger.error(f"Error during display cleanup: {e}")
 
-def display_text(display, text, font_size=24):
+def display_text(display, text, config_manager, font_size=24):
     """Display text on the Waveshare display with improved error handling.
     
     Args:
@@ -323,7 +320,7 @@ def display_text(display, text, font_size=24):
         draw = ImageDraw.Draw(image)
         
         # Load font
-        font = _load_font(size=font_size)
+        font = _load_font(config_manager, size=font_size)
         
         # Handle text that might be too long with word wrapping
         max_width = display.WIDTH - 40  # Leave margins

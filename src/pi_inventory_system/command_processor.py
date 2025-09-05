@@ -24,7 +24,7 @@ except Exception:
 
 nlp = None
 
-def _ensure_nlp():
+def _ensure_nlp(config_manager):
     """Attempt to load spaCy model once; return the model or None on failure."""
     global nlp
     if nlp is not None:
@@ -33,8 +33,7 @@ def _ensure_nlp():
         return None
     
     # Get NLP configuration
-    from .config_manager import config
-    nlp_config = config.get_nlp_config()
+    nlp_config = config_manager.get_nlp_config()
     
     if not nlp_config.get('enable_spacy', True):
         logging.info("spaCy disabled in configuration, using rule-based parsing")
@@ -51,7 +50,7 @@ def _ensure_nlp():
         nlp = None
         return None
 
-def parse_quantity(text: str) -> Optional[int]:
+def parse_quantity(text: str, config_manager) -> Optional[int]:
     """Parse a quantity from text, handling both numeric and word forms."""
     if not text:
         return None
@@ -76,7 +75,7 @@ def parse_quantity(text: str) -> Optional[int]:
     # Try word to number conversion
     try:
         # Get special quantities from configuration
-        command_config = config.get_command_config()
+        command_config = config_manager.get_command_config()
         special_quantities = command_config.get('special_quantities', {
             'a': 1, 'an': 1, 'one': 1, 'two': 2, 'three': 3,
             'four': 4, 'five': 5, 'six': 6, 'seven': 7,
@@ -102,7 +101,7 @@ def parse_quantity(text: str) -> Optional[int]:
     
     return None
 
-def interpret_command(command_text: str) -> Tuple[Optional[str], Optional[InventoryItem]]:
+def interpret_command(command_text: str, config_manager) -> Tuple[Optional[str], Optional[InventoryItem]]:
     """
     Interpret a command from text input.
     Returns a tuple of (command_type, InventoryItem) for add/remove/set commands,
@@ -140,7 +139,7 @@ def interpret_command(command_text: str) -> Tuple[Optional[str], Optional[Invent
     
     # Determine command type with comprehensive pattern matching
     command_type = None
-    model = _ensure_nlp()
+    model = _ensure_nlp(config_manager)
     
     try:
         if model is not None:
@@ -197,13 +196,13 @@ def interpret_command(command_text: str) -> Tuple[Optional[str], Optional[Invent
             if to_match:
                 item_name = to_match.group(1).strip()
                 quantity_text = to_match.group(2).strip()
-                quantity = parse_quantity(quantity_text)
+                quantity = parse_quantity(quantity_text, config_manager)
             else:
                 # Try pattern without "to"
                 set_match = re.search(r"set\s+(.+?)\s+(\d+|\w+)$", command_text)
                 if set_match:
                     item_name = set_match.group(1).strip()
-                    quantity = parse_quantity(set_match.group(2))
+                    quantity = parse_quantity(set_match.group(2), config_manager)
         else:
             # For add/remove commands, look for quantity and item
             # Remove command word first
@@ -213,14 +212,14 @@ def interpret_command(command_text: str) -> Tuple[Optional[str], Optional[Invent
             words = text_without_command.split()
             if words:
                 # Check first word for quantity
-                first_quantity = parse_quantity(words[0])
+                first_quantity = parse_quantity(words[0], config_manager)
                 if first_quantity is not None:
                     quantity = first_quantity
                     item_name = " ".join(words[1:])
                 else:
                     # Check for quantity anywhere in the text
                     for i, word in enumerate(words):
-                        parsed_quantity = parse_quantity(word)
+                        parsed_quantity = parse_quantity(word, config_manager)
                         if parsed_quantity is not None:
                             quantity = parsed_quantity
                             # Item name is everything except the quantity word
@@ -256,7 +255,7 @@ def interpret_command(command_text: str) -> Tuple[Optional[str], Optional[Invent
         
         # Normalize the item name and create InventoryItem
         try:
-            item_name = normalize_item_name(item_name)
+            item_name = normalize_item_name(item_name, config_manager)
             if item_name:  # normalize_item_name might return None
                 return command_type, InventoryItem(item_name=item_name, quantity=quantity)
         except (ValueError, TypeError) as e:

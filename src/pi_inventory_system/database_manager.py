@@ -5,52 +5,49 @@ import os
 import glob
 import logging
 import threading
-from typing import List, Optional
+from typing import List, Optional, Any
 from datetime import datetime
 from pathlib import Path
 from contextlib import contextmanager
-from .config_manager import config
+
 from .inventory_item import InventoryItem
 
 logger = logging.getLogger(__name__)
 
-
 class DatabaseManager:
     """Simple database manager optimized for Raspberry Pi with SQLite."""
     
-    def __init__(self, db_path: Optional[str] = None):
+    def __init__(self, db_path: Optional[str] = None, config_manager: Optional[Any] = None):
         """Initialize the database manager.
         
         Args:
             db_path: Path to the database file. If None, uses config default.
+            config_manager: Configuration manager instance.
         """
-        self._db_path = db_path or config.get_database_path()
+        from .config_manager import get_default_config_manager
+        self._config_manager = config_manager or get_default_config_manager()
+        self._db_path = db_path or self._config_manager.get('database', 'path')
         self._lock = threading.RLock()
-        self._connection = None
+        self._connection: Optional[sqlite3.Connection] = None
         self._initialized = False
         self.initialize()
     
     def _get_connection(self) -> sqlite3.Connection:
-        """Get or create the database connection.
-        
-        For a single-threaded Pi application, we maintain one connection
-        for better performance and simplicity.
-        """
+        """Get or create the database connection."""
         if self._connection is None:
             try:
-                # Simple connection with sensible defaults for Pi
+                db_config = self._config_manager.get_database_advanced_config()
                 self._connection = sqlite3.connect(
                     self._db_path, 
-                    timeout=30.0,
-                    isolation_level=None  # Autocommit mode
+                    timeout=db_config.get('timeout', 30.0),
+                    isolation_level=None
                 )
                 self._connection.row_factory = sqlite3.Row
                 
-                # Optimize for Pi's limited resources
-                self._connection.execute("PRAGMA journal_mode=WAL")
-                self._connection.execute("PRAGMA synchronous=NORMAL")
-                self._connection.execute("PRAGMA cache_size=500")
-                self._connection.execute("PRAGMA temp_store=MEMORY")
+                self._connection.execute(f"PRAGMA journal_mode={db_config.get('wal_mode', 'WAL')}")
+                self._connection.execute(f"PRAGMA synchronous={db_config.get('synchronous_mode', 'NORMAL')}")
+                self._connection.execute(f"PRAGMA cache_size={db_config.get('cache_size', 500)}")
+                self._connection.execute(f"PRAGMA temp_store={db_config.get('temp_store', 'MEMORY')}")
                 
                 logger.info(f"Database connection established to {self._db_path}")
                 
@@ -69,9 +66,9 @@ class DatabaseManager:
         try:
             cursor.execute("BEGIN")
             yield conn
-            cursor.execute("COMMIT")
+            conn.commit()
         except Exception:
-            cursor.execute("ROLLBACK")
+            conn.rollback()
             raise
         finally:
             cursor.close()
@@ -85,7 +82,6 @@ class DatabaseManager:
             try:
                 conn = self._get_connection()
                 
-                # Create migrations table
                 cursor = conn.cursor()
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS migrations (
@@ -96,7 +92,6 @@ class DatabaseManager:
                 """)
                 cursor.close()
                 
-                # Run pending migrations
                 self._run_migrations(conn)
                 
                 self._initialized = True
@@ -108,7 +103,6 @@ class DatabaseManager:
     
     def _run_migrations(self, conn: sqlite3.Connection):
         """Run all pending migrations."""
-        # Get migrations directory
         current_dir = Path(__file__).parent
         migrations_dir = current_dir.parent.parent / 'migrations'
         
@@ -116,29 +110,30 @@ class DatabaseManager:
             logger.info("No migrations directory found")
             return
         
-        # Get applied migrations
         cursor = conn.cursor()
         cursor.execute("SELECT migration_name FROM migrations")
-        applied = {row[0] for row in cursor.fetchall()}
-        
-        # Run pending migrations
-        migration_files = sorted(migrations_dir.glob('*.sql'))
-        for migration_file in migration_files:
-            migration_name = migration_file.name
-            if migration_name not in applied:
-                logger.info(f"Running migration: {migration_name}")
-                
-                # Read and execute migration
-                sql = migration_file.read_text()
-                cursor.executescript(sql)
-                
-                # Record migration
-                cursor.execute(
-                    "INSERT INTO migrations (migration_name) VALUES (?)",
-                    (migration_name,)
-                )
-        
+        applied_migrations = {row['migration_name'] for row in cursor.fetchall()}
         cursor.close()
+        
+        migration_files = sorted(glob.glob(os.path.join(migrations_dir, "*.sql")))
+        for migration_file in migration_files:
+            migration_name = os.path.basename(migration_file)
+            if migration_name not in applied_migrations:
+                try:
+                    with self._transaction() as trans_conn, open(migration_file, 'r') as f:
+                        sql_script = f.read()
+                        trans_conn.executescript(sql_script)
+                        
+                        cursor = trans_conn.cursor()
+                        cursor.execute(
+                            "INSERT INTO migrations (migration_name) VALUES (?)",
+                            (migration_name,)
+                        )
+                        cursor.close()
+                    logger.info(f"Applied migration: {migration_name}")
+                except Exception as e:
+                    logger.error(f"Failed to apply migration {migration_name}: {e}")
+                    raise
     
     def get_current_quantity(self, item_name: str) -> int:
         """Get the current quantity of an item."""
@@ -146,7 +141,7 @@ class DatabaseManager:
             conn = self._get_connection()
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT quantity FROM inventory WHERE item_name = ?", 
+                "SELECT quantity FROM inventory WHERE item_name = ?",
                 (item_name,)
             )
             result = cursor.fetchone()
@@ -155,158 +150,110 @@ class DatabaseManager:
     
     def add_item(self, item_name: str, quantity: int) -> bool:
         """Add items to inventory."""
-        try:
-            item = InventoryItem(item_name=item_name, quantity=quantity)
-        except ValueError as e:
-            logger.warning(f"Invalid item data: {e}")
-            return False
-            
         with self._lock:
             try:
                 with self._transaction() as conn:
                     cursor = conn.cursor()
+                    current = self.get_current_quantity(item_name)
+                    new_quantity = current + quantity
                     
-                    # Get current quantity
-                    cursor.execute(
-                        "SELECT quantity FROM inventory WHERE item_name = ?",
-                        (item.item_name,)
-                    )
-                    result = cursor.fetchone()
-                    current = result['quantity'] if result else 0
-                    new_quantity = current + item.quantity
-                    
-                    # Update inventory
-                    if current == 0:
+                    if current > 0:
                         cursor.execute(
-                            "INSERT INTO inventory (item_name, quantity) VALUES (?, ?)",
-                            (item.item_name, new_quantity)
+                            "UPDATE inventory SET quantity = ? WHERE item_name = ?",
+                            (new_quantity, item_name)
                         )
                     else:
                         cursor.execute(
-                            "UPDATE inventory SET quantity = ? WHERE item_name = ?",
-                            (new_quantity, item.item_name)
+                            "INSERT INTO inventory (item_name, quantity) VALUES (?, ?)",
+                            (item_name, new_quantity)
                         )
                     
-                    # Record history
                     cursor.execute(
                         """INSERT INTO inventory_history 
                            (item_name, previous_quantity, new_quantity, operation_type)
                            VALUES (?, ?, ?, 'add')""",
-                        (item.item_name, current, new_quantity)
+                        (item_name, current, new_quantity)
                     )
-                    
                     cursor.close()
-                    return True
-                    
+                return True
             except Exception as e:
                 logger.error(f"Error adding item {item_name}: {e}")
                 return False
     
     def remove_item(self, item_name: str, quantity: int) -> bool:
         """Remove items from inventory."""
-        try:
-            item = InventoryItem(item_name=item_name, quantity=quantity)
-        except ValueError as e:
-            logger.warning(f"Invalid item data: {e}")
-            return False
-            
         with self._lock:
             try:
                 with self._transaction() as conn:
                     cursor = conn.cursor()
+                    current = self.get_current_quantity(item_name)
+                    new_quantity = max(0, current - quantity)
                     
-                    # Get current quantity
-                    cursor.execute(
-                        "SELECT quantity FROM inventory WHERE item_name = ?",
-                        (item.item_name,)
-                    )
-                    result = cursor.fetchone()
-                    current = result['quantity'] if result else 0
+                    if new_quantity == 0:
+                        cursor.execute(
+                            "DELETE FROM inventory WHERE item_name = ?",
+                            (item_name,)
+                        )
+                    else:
+                        cursor.execute(
+                            "UPDATE inventory SET quantity = ? WHERE item_name = ?",
+                            (new_quantity, item_name)
+                        )
                     
-                    # Calculate new quantity (allow going to 0)
-                    new_quantity = max(0, current - item.quantity)
-                    
-                    # Update inventory
-                    cursor.execute(
-                        "UPDATE inventory SET quantity = ? WHERE item_name = ?",
-                        (new_quantity, item.item_name)
-                    )
-                    
-                    # Record history
                     cursor.execute(
                         """INSERT INTO inventory_history 
                            (item_name, previous_quantity, new_quantity, operation_type)
                            VALUES (?, ?, ?, 'remove')""",
-                        (item.item_name, current, new_quantity)
+                        (item_name, current, new_quantity)
                     )
-                    
                     cursor.close()
-                    return True
-                    
+                return True
             except Exception as e:
                 logger.error(f"Error removing item {item_name}: {e}")
                 return False
     
     def set_item(self, item_name: str, quantity: int) -> bool:
         """Set the quantity of an item."""
-        try:
-            item = InventoryItem(item_name=item_name, quantity=quantity)
-        except ValueError as e:
-            logger.warning(f"Invalid item data: {e}")
-            return False
-            
         with self._lock:
             try:
                 with self._transaction() as conn:
                     cursor = conn.cursor()
+                    current = self.get_current_quantity(item_name)
                     
-                    # Get current quantity
-                    cursor.execute(
-                        "SELECT quantity FROM inventory WHERE item_name = ?",
-                        (item.item_name,)
-                    )
-                    result = cursor.fetchone()
-                    current = result['quantity'] if result else 0
-                    
-                    # Update inventory
-                    if current == 0:
+                    if quantity == 0:
                         cursor.execute(
-                            "INSERT INTO inventory (item_name, quantity) VALUES (?, ?)",
-                            (item.item_name, item.quantity)
+                            "DELETE FROM inventory WHERE item_name = ?",
+                            (item_name,)
+                        )
+                    elif current > 0:
+                        cursor.execute(
+                            "UPDATE inventory SET quantity = ? WHERE item_name = ?",
+                            (quantity, item_name)
                         )
                     else:
                         cursor.execute(
-                            "UPDATE inventory SET quantity = ? WHERE item_name = ?",
-                            (item.quantity, item.item_name)
+                            "INSERT INTO inventory (item_name, quantity) VALUES (?, ?)",
+                            (item_name, quantity)
                         )
                     
-                    # Record history
                     cursor.execute(
                         """INSERT INTO inventory_history 
                            (item_name, previous_quantity, new_quantity, operation_type)
                            VALUES (?, ?, ?, 'set')""",
-                        (item.item_name, current, item.quantity)
+                        (item_name, current, quantity)
                     )
-                    
                     cursor.close()
-                    return True
-                    
+                return True
             except Exception as e:
                 logger.error(f"Error setting item {item_name}: {e}")
                 return False
     
     def undo_last_change(self) -> tuple[bool, Optional[str]]:
-        """Undo the last inventory change.
-        
-        Returns:
-            Tuple of (success, item_name)
-        """
+        """Undo the last inventory change."""
         with self._lock:
             try:
                 with self._transaction() as conn:
                     cursor = conn.cursor()
-                    
-                    # Get last change
                     cursor.execute(
                         """SELECT * FROM inventory_history 
                            ORDER BY id DESC LIMIT 1"""
@@ -314,14 +261,12 @@ class DatabaseManager:
                     last_change = cursor.fetchone()
                     
                     if not last_change:
-                        cursor.close()
                         return False, None
                     
                     history_id = last_change['id']
                     item_name = last_change['item_name']
                     previous_quantity = last_change['previous_quantity']
                     
-                    # Restore previous quantity
                     if previous_quantity == 0:
                         cursor.execute(
                             "DELETE FROM inventory WHERE item_name = ?",
@@ -333,15 +278,12 @@ class DatabaseManager:
                             (previous_quantity, item_name)
                         )
                     
-                    # Remove history entry
                     cursor.execute(
                         "DELETE FROM inventory_history WHERE id = ?",
                         (history_id,)
                     )
-                    
                     cursor.close()
-                    return True, item_name
-                    
+                return True, item_name
             except Exception as e:
                 logger.error(f"Error undoing last change: {e}")
                 return False, None
@@ -352,7 +294,7 @@ class DatabaseManager:
             conn = self._get_connection()
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT item_name, quantity FROM inventory WHERE quantity > 0"
+                "SELECT item_name, quantity FROM inventory WHERE quantity > 0 ORDER BY item_name"
             )
             result = [(row['item_name'], row['quantity']) for row in cursor.fetchall()]
             cursor.close()
@@ -370,22 +312,19 @@ class DatabaseManager:
                 finally:
                     self._connection = None
 
-
-# Factory function
-def create_database_manager(db_path: Optional[str] = None) -> DatabaseManager:
+def create_database_manager(config_manager: Any, db_path: Optional[str] = None) -> DatabaseManager:
     """Create a new database manager instance."""
-    return DatabaseManager(db_path)
+    return DatabaseManager(db_path=db_path, config_manager=config_manager)
 
-
-# Default instance management
-_default_db_manager = None
+_default_db_manager: Optional[DatabaseManager] = None
 
 def get_default_db_manager() -> DatabaseManager:
     """Get the default database manager instance."""
     global _default_db_manager
     if _default_db_manager is None:
-        _default_db_manager = create_database_manager()
+        from .config_manager import get_default_config_manager
+        config_manager = get_default_config_manager()
+        _default_db_manager = create_database_manager(config_manager)
     return _default_db_manager
 
-# Backward compatibility
 db_manager = get_default_db_manager()

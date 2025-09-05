@@ -11,7 +11,7 @@ from .exceptions import InventoryError, CommandProcessingError
 class InventoryController:
     """Controller class for managing the inventory system."""
     
-    def __init__(self, db_manager=None, display=None):
+    def __init__(self, db_manager=None, display=None, config_manager=None):
         """Initialize the inventory controller.
         
         Args:
@@ -20,6 +20,7 @@ class InventoryController:
         """
         self._db_manager = db_manager or get_default_db_manager()
         self.display = display
+        self.config_manager = config_manager
         self._command_history: List[Tuple[str, InventoryItem]] = []
         
         if self.display:
@@ -51,7 +52,7 @@ class InventoryController:
             return False, "Command too long. Please use shorter commands."
         
         try:
-            command_type, item = interpret_command(command)
+            command_type, item = interpret_command(command, self.config_manager)
             if not command_type:
                 return False, "Command not recognized. Please try again with add, remove, set, or undo."
             
@@ -98,7 +99,7 @@ class InventoryController:
                 display_list.append((category, quantity))
 
             # Call the display function with the complete, sorted list
-            display_inventory(self.display, display_list)
+            display_inventory(self.display, display_list, self.config_manager)
             logging.info(f"Updated display with {len(display_list)} items.")
         except Exception as e:
             logging.error(f"Failed to update display with inventory: {e}")
@@ -186,7 +187,7 @@ class InventoryController:
         try:
             # Normalize item name before execution
             original_name = item.item_name
-            item.item_name = normalize_item_name(item.item_name) or item.item_name
+            item.item_name = normalize_item_name(item.item_name, self.config_manager) or item.item_name
             
             # Log the operation
             logging.info(f"Executing {command_type} for {item.item_name} (qty: {item.quantity})")

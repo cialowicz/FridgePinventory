@@ -6,7 +6,7 @@ import threading
 import queue
 import time
 from typing import Optional
-from .config_manager import config
+
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,7 @@ class AudioFeedbackManager:
         Args:
             config_manager: Configuration manager instance.
         """
-        self._config = config_manager or config
+        self._config = config_manager
         self._lock = threading.Lock()
         self._sound_lock = threading.Lock()
         
@@ -298,20 +298,3 @@ class AudioFeedbackManager:
                 self._tts_engine = None
         
         self.logger.info("Audio feedback cleanup completed")
-
-
-# Backward compatibility wrapper
-class AudioFeedback:
-    """Backward compatibility wrapper for AudioFeedbackManager."""
-    
-    def __init__(self):
-        self._manager = AudioFeedbackManager()
-    
-    def play_sound(self, sound_type: str) -> bool:
-        return self._manager.play_sound(sound_type)
-    
-    def speak(self, message: str) -> bool:
-        return self._manager.speak(message)
-    
-    def cleanup(self):
-        self._manager.cleanup()

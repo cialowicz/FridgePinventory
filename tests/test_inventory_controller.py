@@ -1,6 +1,6 @@
 import pytest
 import time
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, MagicMock
 from pi_inventory_system.inventory_controller import InventoryController
 from pi_inventory_system.inventory_item import InventoryItem
 
@@ -10,9 +10,15 @@ def controller():
     """Create a controller instance with mocked dependencies."""
     with patch('pi_inventory_system.inventory_controller.get_default_db_manager') as mock_db_manager:
         mock_display = Mock()
-        controller_instance = InventoryController(db_manager=mock_db_manager, display=mock_display)
+        mock_config_manager = MagicMock()
+        mock_config_manager.get_command_config.return_value = {'similarity_threshold': 0.8}
+        controller_instance = InventoryController(
+            db_manager=mock_db_manager, 
+            display=mock_display, 
+            config_manager=mock_config_manager
+        )
         # attach mocks to instance for easy access in tests
-        controller_instance.db = mock_db_manager 
+        controller_instance.db = mock_db_manager
         return controller_instance
 
 
