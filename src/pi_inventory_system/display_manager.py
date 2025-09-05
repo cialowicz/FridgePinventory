@@ -1,4 +1,5 @@
-# Module for managing the eInk display
+# Module for managing the e-Paper display
+# Updated for Waveshare 3.97" 800x480 e-Paper HAT+
 
 import os
 import logging
@@ -10,8 +11,10 @@ logger = logging.getLogger(__name__)
 
 from math import ceil
 from pi_inventory_system.config_manager import config
+from PIL import Image, ImageDraw, ImageFont
 
-INKY_AVAILABLE = False
+# Import the Waveshare display driver
+from .waveshare_display import WaveshareDisplay
 
 def _is_raspberry_pi():
     """Check if we're running on a Raspberry Pi."""
@@ -33,109 +36,82 @@ def _is_raspberry_pi():
 
 # Initialize display support
 is_raspberry_pi = _is_raspberry_pi()
-logger.info(f"Initial Raspberry Pi check: {is_raspberry_pi}")
-
-if is_raspberry_pi:
-    try:
-        # Renamed import to avoid conflict if 'auto' is used as a variable name elsewhere
-        from inky.auto import auto as auto_inky_display 
-        # from inky import InkyPHAT, InkyWHAT # For specific display types
-        # from inky import Inky # If using a specific model like InkyImpression
-        INKY_AVAILABLE = True
-        logger.info("Inky library successfully imported.")
-    except ImportError as e:
-        # Log the import error for Inky specifically
-        logger.warning(f"Inky library not found or failed to import: {e}. Display will not be available.")
-        INKY_AVAILABLE = False
-    except Exception as e:
-        logger.error(f"An unexpected error occurred during Inky import: {e}")
-        logger.error(f"Traceback: {traceback.format_exc()}")
-        INKY_AVAILABLE = False
-else:
-    logger.info("Not a Raspberry Pi platform. Inky display will not be available.")
-    INKY_AVAILABLE = False
-
-from PIL import Image, ImageDraw, ImageFont
-
-if Image is None:
-    logger.critical("Critical Error: PIL.Image is None immediately after import!")
-else:
-    logger.info(f"PIL.Image imported: type is {type(Image)}")
-
-Inky = None
+logger.info(f"Raspberry Pi detected: {is_raspberry_pi}")
 
 def is_display_supported() -> bool:
     """Checks if the display is supported on the current platform."""
-    supported = is_raspberry_pi and INKY_AVAILABLE
-    logger.info(f"Checking if display is supported. Is Raspberry Pi: {is_raspberry_pi}, Is Inky Lib Available: {INKY_AVAILABLE}. Result: {supported}")
+    supported = is_raspberry_pi
+    logger.info(f"Display supported: {supported}")
     return supported
 
 def initialize_display():
-    """Initializes the eInk display if supported."""
-    logger.info("Attempting to initialize Inky display...")
+    """Initializes the Waveshare e-Paper display if supported."""
+    logger.info("Attempting to initialize Waveshare display...")
     if not is_display_supported():
-        # The reason (not Pi or Inky lib missing) would have been logged by is_display_supported or module init.
-        logger.warning("Display not supported on this platform or Inky library missing. Cannot initialize.")
+        logger.warning("Display not supported on this platform")
         return None
+    
     try:
-        logger.info("Using Inky auto-detection (inky.auto.auto) with verbose=True.")
-        # The auto() function tries to guess the display type.
-        # verbose=True can help debug which display it's trying.
-        # For InkyImpression, you might need to pass resolution, e.g. auto_inky_display(verbose=True, resolution=(600, 448))
-        display = auto_inky_display(verbose=True)
-        logger.info(f"Inky display auto-detected and initialized. Display object: {type(display)}")
-        
-        # ---- Example for specific Inky display (if auto-detection fails) ----
-        # If auto-detection fails, or you know your display type, initialize it directly.
-        # Common types: InkyPHAT (red, black, yellow), InkyWHAT (red, black, yellow)
-        # from inky import InkyPHAT
-        # Known colors for InkyPHAT/WHAT: "red", "black", "yellow" (check your model)
-        # Example for a red Inky pHAT:
-        # logger.info("Attempting to initialize InkyPHAT('red') specifically as an alternative.")
-        # display = InkyPHAT('red')
-        # logger.info("Successfully initialized InkyPHAT('red').")
-        # ---- End example ----
-
-        # Perform a basic operation to confirm it's working.
-        logger.info("Setting display border to white and calling show() as a test.")
-        display.set_border(display.WHITE) 
-        display.show() # This will clear the screen or show the current buffer contents.
-        logger.info("Display initialized and test (set_border, show) completed.")
-        return display
+        display = WaveshareDisplay()
+        if display.initialize():
+            logger.info("Waveshare display initialized successfully")
+            return display
+        else:
+            logger.warning("Failed to initialize Waveshare display")
+            return None
     except Exception as e:
-        logger.error(f"Failed to initialize Inky display during auto-detection or test: {e}")
+        logger.error(f"Failed to initialize display: {e}")
         logger.error(f"Traceback: {traceback.format_exc()}")
         return None
 
-def create_lozenge(draw, x, y, width, height, item_name, quantity, font):
-    """Create a lozenge shape with item name and quantity."""
-    # Get color configuration
-    color_config = config.get('display', 'colors', default={})
-    background_color = color_config.get('background', 'white')
-    text_color = color_config.get('text', 'black')
-    border_normal = color_config.get('border_normal', 'black')
-    border_low_stock = color_config.get('border_low_stock', 'yellow')
-    low_stock_threshold = color_config.get('low_stock_threshold', 2)
+def create_lozenge(draw, x, y, width, height, item_name, quantity, font, colors):
+    """Create a lozenge shape with item name and quantity.
+    
+    Args:
+        draw: PIL ImageDraw instance
+        x, y: Top-left coordinates
+        width, height: Size of lozenge
+        item_name: Name of the item
+        quantity: Quantity of the item
+        font: Font to use
+        colors: Color configuration dict
+    """
+    # Get colors (using grayscale values for Waveshare)
+    background_color = colors.get('background', 255)  # White
+    text_color = colors.get('text', 0)  # Black
+    border_normal = colors.get('border_normal', 0)  # Black
+    border_low_stock = colors.get('border_low_stock', 128)  # Gray
+    low_stock_threshold = colors.get('low_stock_threshold', 2)
     
     # Determine border color based on quantity
     border_color = border_low_stock if quantity <= low_stock_threshold else border_normal
     
-    # Draw the lozenge shape
-    draw.rectangle([(x, y), (x + width, y + height)], fill=background_color, outline=border_color)
+    # Draw rounded rectangle (lozenge)
+    radius = min(width, height) // 4
+    draw.rounded_rectangle(
+        [(x, y), (x + width, y + height)],
+        radius=radius,
+        fill=background_color,
+        outline=border_color,
+        width=2
+    )
     
     # Add item name and quantity
     text = f"{item_name}: {quantity}"
+    
+    # Get text size
     text_bbox = draw.textbbox((0, 0), text, font=font)
     text_width = text_bbox[2] - text_bbox[0]
     text_height = text_bbox[3] - text_bbox[1]
     
+    # Center text in lozenge
     text_x = x + (width - text_width) // 2
     text_y = y + (height - text_height) // 2
     
     draw.text((text_x, text_y), text, fill=text_color, font=font)
 
 def display_inventory(display, inventory):
-    """Display the current inventory on the Inky display.
+    """Display the current inventory on the Waveshare display.
 
     Args:
         display: The display object.
@@ -146,90 +122,67 @@ def display_inventory(display, inventory):
         return False
 
     try:
-        # Validate display object has required attributes
+        # Validate display object
         if not hasattr(display, 'WIDTH') or not hasattr(display, 'HEIGHT'):
             logger.error("Display object missing WIDTH or HEIGHT attributes")
             return False
         
-        if not hasattr(display, 'set_image') or not hasattr(display, 'show'):
-            logger.error("Display object missing set_image or show methods")
-            return False
-        
-        if not inventory:
-            logger.info("No inventory to display, clearing display")
-            # Clear display with empty image
-            try:
-                image = Image.new("P", (display.WIDTH, display.HEIGHT))
-                draw = ImageDraw.Draw(image)
-                # Draw "No items" message
-                font = ImageFont.load_default()
-                text = "No items in inventory"
-                text_bbox = draw.textbbox((0, 0), text, font=font)
-                text_width = text_bbox[2] - text_bbox[0]
-                text_height = text_bbox[3] - text_bbox[1]
-                text_x = (display.WIDTH - text_width) // 2
-                text_y = (display.HEIGHT - text_height) // 2
-                draw.text((text_x, text_y), text, fill='black', font=font)
-                display.set_image(image)
-                display.show()
-            except Exception as e:
-                logger.error(f"Error clearing display: {e}")
-                return False
-            return True
-        
-        # Validate inventory data
-        if not isinstance(inventory, (list, tuple)):
-            logger.error(f"Invalid inventory type: {type(inventory)}")
-            return False
-        
-        # Create a new image
-        image = Image.new("P", (display.WIDTH, display.HEIGHT))
+        # Create a new image with 800x480 resolution
+        image = Image.new("L", (display.WIDTH, display.HEIGHT), 255)  # White background
         draw = ImageDraw.Draw(image)
         
-        # Load font from configuration with better error handling
-        font_config = config.get_font_config()
-        font_path = font_config.get('path', '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf')
-        font_size = font_config.get('size', 16)
-        fallback_size = font_config.get('fallback_size', 12)
+        if not inventory:
+            logger.info("No inventory to display, showing empty message")
+            # Draw "No items" message
+            font = _load_font(size=32)
+            text = "No items in inventory"
+            text_bbox = draw.textbbox((0, 0), text, font=font)
+            text_width = text_bbox[2] - text_bbox[0]
+            text_height = text_bbox[3] - text_bbox[1]
+            text_x = (display.WIDTH - text_width) // 2
+            text_y = (display.HEIGHT - text_height) // 2
+            draw.text((text_x, text_y), text, fill=0, font=font)
+            display.display_image(image)
+            return True
         
-        font = None
-        font_paths_to_try = [
-            font_path,
-            '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
-            '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf',
-            '/System/Library/Fonts/Helvetica.ttc'  # macOS fallback
-        ]
+        # Load font from configuration
+        font = _load_font()
         
-        for path in font_paths_to_try:
-            if os.path.exists(path):
-                try:
-                    font = ImageFont.truetype(path, font_size)
-                    logger.debug(f"Loaded font from {path}")
-                    break
-                except Exception as e:
-                    logger.debug(f"Failed to load font from {path}: {e}")
-                    continue
+        # Get color configuration
+        color_config = config.get('display', 'colors', default={})
         
-        if font is None:
-            logger.warning("Failed to load any TrueType font, using default")
-            font = ImageFont.load_default()
-        
-        # Calculate layout from configuration with validation
+        # Calculate layout for 800x480 display
         layout_config = config.get_layout_config()
-        items_per_row = max(1, layout_config.get('items_per_row', 2))
-        lozenge_width_margin = max(0, layout_config.get('lozenge_width_margin', 30))
-        lozenge_height = max(20, layout_config.get('lozenge_height', 40))
-        spacing = max(0, layout_config.get('spacing', 10))
-        margin = max(0, layout_config.get('margin', 10))
         
-        # Calculate lozenge width with bounds checking
+        # Optimized layout for 800x480
+        # Can fit more items with better resolution
+        items_per_row = layout_config.get('items_per_row', 4)  # More items per row
+        margin = layout_config.get('margin', 20)
+        spacing = layout_config.get('spacing', 15)
+        lozenge_height = layout_config.get('lozenge_height', 60)
+        
+        # Calculate lozenge width based on available space
         available_width = display.WIDTH - (2 * margin) - ((items_per_row - 1) * spacing)
-        lozenge_width = max(50, available_width // items_per_row)
+        lozenge_width = available_width // items_per_row
         
-        # Draw lozenges with error handling for each item
+        # Calculate how many rows we can fit
+        available_height = display.HEIGHT - (2 * margin)
+        rows_per_page = available_height // (lozenge_height + spacing)
+        max_items = rows_per_page * items_per_row
+        
+        # Draw header
+        header_font = _load_font(size=24)
+        header_text = "Fridge Inventory"
+        header_bbox = draw.textbbox((0, 0), header_text, font=header_font)
+        header_width = header_bbox[2] - header_bbox[0]
+        header_x = (display.WIDTH - header_width) // 2
+        draw.text((header_x, 10), header_text, fill=0, font=header_font)
+        
+        # Adjust starting Y position to account for header
+        start_y = 50
+        
+        # Draw inventory items
         items_displayed = 0
-        max_items = (display.HEIGHT - 2 * margin) // (lozenge_height + spacing) * items_per_row
-        
         for i, item in enumerate(inventory[:max_items]):
             try:
                 # Validate item format
@@ -239,7 +192,7 @@ def display_inventory(display, inventory):
                 
                 item_name, quantity = item[0], item[1]
                 
-                # Validate item data
+                # Validate and convert data
                 if not isinstance(item_name, str):
                     item_name = str(item_name)
                 if not isinstance(quantity, (int, float)):
@@ -253,40 +206,69 @@ def display_inventory(display, inventory):
                 col = items_displayed % items_per_row
                 
                 x = margin + col * (lozenge_width + spacing)
-                y = margin + row * (lozenge_height + spacing)
+                y = start_y + row * (lozenge_height + spacing)
                 
                 # Check if item fits on display
                 if y + lozenge_height > display.HEIGHT - margin:
-                    logger.warning(f"Item {item_name} doesn't fit on display, stopping")
+                    logger.info(f"Reached display limit at item {i}")
                     break
                 
                 create_lozenge(draw, x, y, lozenge_width, lozenge_height,
-                              item_name, quantity, font)
+                              item_name, quantity, font, color_config)
                 items_displayed += 1
                 
             except Exception as e:
                 logger.error(f"Error drawing item {i}: {e}")
                 continue
         
-        # Update display with retry logic
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                display.set_image(image)
-                display.show()
-                logger.info(f"Successfully updated display with {items_displayed} items")
-                return True
-            except Exception as e:
-                logger.error(f"Error updating display (attempt {attempt + 1}/{max_retries}): {e}")
-                if attempt < max_retries - 1:
-                    time.sleep(0.5)  # Brief delay before retry
-                else:
-                    return False
+        # Add timestamp at bottom
+        timestamp = time.strftime("%Y-%m-%d %H:%M")
+        timestamp_font = _load_font(size=14)
+        timestamp_bbox = draw.textbbox((0, 0), timestamp, font=timestamp_font)
+        timestamp_width = timestamp_bbox[2] - timestamp_bbox[0]
+        timestamp_x = display.WIDTH - timestamp_width - 10
+        timestamp_y = display.HEIGHT - 25
+        draw.text((timestamp_x, timestamp_y), timestamp, fill=128, font=timestamp_font)  # Gray
+        
+        # Update display
+        logger.info(f"Displaying {items_displayed} items on Waveshare display")
+        display.display_image(image)
+        return True
     
     except Exception as e:
         logger.error(f"Unexpected error displaying inventory: {e}")
         logger.error(traceback.format_exc())
         return False
+
+def _load_font(size=18):
+    """Load a font with fallback options.
+    
+    Args:
+        size: Font size to load
+        
+    Returns:
+        PIL ImageFont instance
+    """
+    font_config = config.get_font_config()
+    font_path = font_config.get('path', '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf')
+    
+    font_paths_to_try = [
+        font_path,
+        '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+        '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf',
+        '/System/Library/Fonts/Helvetica.ttc'  # macOS fallback
+    ]
+    
+    for path in font_paths_to_try:
+        if os.path.exists(path):
+            try:
+                return ImageFont.truetype(path, size)
+            except Exception as e:
+                logger.debug(f"Failed to load font from {path}: {e}")
+                continue
+    
+    logger.warning("Failed to load any TrueType font, using default")
+    return ImageFont.load_default()
 
 def cleanup_display(display):
     """Clean up display resources.
@@ -298,25 +280,28 @@ def cleanup_display(display):
         return
     
     try:
-        # Clear the display
+        # Clear the display before cleanup
         if hasattr(display, 'clear'):
             display.clear()
             logger.info("Display cleared")
         
-        # Release any resources
+        # Call cleanup method
         if hasattr(display, 'cleanup'):
             display.cleanup()
             logger.info("Display resources cleaned up")
-        elif hasattr(display, 'close'):
-            display.close()
-            logger.info("Display closed")
         
         logger.info("Display cleanup completed")
     except Exception as e:
         logger.error(f"Error during display cleanup: {e}")
 
-def display_text(display, text, font_size=16):  # Larger default font size for WHAT
-    """Display text on the Inky display with improved error handling."""
+def display_text(display, text, font_size=24):
+    """Display text on the Waveshare display with improved error handling.
+    
+    Args:
+        display: Display instance
+        text: Text to display
+        font_size: Size of the font
+    """
     if not display:
         logger.warning("No display available for text display")
         return False
@@ -327,60 +312,21 @@ def display_text(display, text, font_size=16):  # Larger default font size for W
             logger.error("Display object missing WIDTH or HEIGHT attributes")
             return False
         
-        if not hasattr(display, 'set_image') or not hasattr(display, 'show'):
-            logger.error("Display object missing set_image or show methods")
-            return False
-        
         # Validate text input
         if not text:
             text = " "  # Display blank if no text
         elif not isinstance(text, str):
             text = str(text)
         
-        if Image is None:
-            logger.critical("Critical Error: PIL.Image is None!")
-            return False
-        
         # Create a new image
-        image = Image.new("P", (display.WIDTH, display.HEIGHT))
+        image = Image.new("L", (display.WIDTH, display.HEIGHT), 255)  # White background
         draw = ImageDraw.Draw(image)
         
-        # Load font with improved error handling
-        font_config = config.get_font_config()
-        font_path = font_config.get('path', '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf')
-        cfg_size = font_config.get('size', font_size)
-        fallback_size = font_config.get('fallback_size', 12)
-        desired_size = font_size or cfg_size
+        # Load font
+        font = _load_font(size=font_size)
         
-        # Validate font size
-        if not isinstance(desired_size, (int, float)) or desired_size <= 0:
-            desired_size = 16
-            logger.warning(f"Invalid font size, using default: {desired_size}")
-        
-        font = None
-        font_paths_to_try = [
-            font_path,
-            '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
-            '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf',
-            '/System/Library/Fonts/Helvetica.ttc'  # macOS fallback
-        ]
-        
-        for path in font_paths_to_try:
-            if os.path.exists(path):
-                try:
-                    font = ImageFont.truetype(path, int(desired_size))
-                    logger.debug(f"Loaded font from {path}")
-                    break
-                except Exception as e:
-                    logger.debug(f"Failed to load font from {path}: {e}")
-                    continue
-        
-        if font is None:
-            logger.warning("Failed to load any TrueType font, using default")
-            font = ImageFont.load_default()
-        
-        # Handle text that might be too long
-        max_width = display.WIDTH - 20  # Leave some margin
+        # Handle text that might be too long with word wrapping
+        max_width = display.WIDTH - 40  # Leave margins
         text_lines = []
         
         # Simple text wrapping
@@ -401,7 +347,7 @@ def display_text(display, text, font_size=16):  # Larger default font size for W
             text_lines.append(current_line)
         
         # Calculate position for centered multi-line text
-        line_height = font.size + 4
+        line_height = font.size + 8
         total_height = len(text_lines) * line_height
         start_y = (display.HEIGHT - total_height) // 2
         
@@ -411,22 +357,12 @@ def display_text(display, text, font_size=16):  # Larger default font size for W
             text_width = text_bbox[2] - text_bbox[0]
             text_x = (display.WIDTH - text_width) // 2
             text_y = start_y + i * line_height
-            draw.text((text_x, text_y), line, fill='black', font=font)
+            draw.text((text_x, text_y), line, fill=0, font=font)  # Black text
         
-        # Update display with retry logic
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                display.set_image(image)
-                display.show()
-                logger.info(f"Successfully displayed text: {text[:50]}..." if len(text) > 50 else f"Successfully displayed text: {text}")
-                return True
-            except Exception as e:
-                logger.error(f"Error updating display (attempt {attempt + 1}/{max_retries}): {e}")
-                if attempt < max_retries - 1:
-                    time.sleep(0.5)  # Brief delay before retry
-                else:
-                    return False
+        # Update display
+        logger.info(f"Displaying text: {text[:50]}..." if len(text) > 50 else f"Displaying text: {text}")
+        display.display_image(image)
+        return True
     
     except Exception as e:
         logger.error(f"Unexpected error displaying text: {e}")

@@ -24,6 +24,7 @@ dependencies = [
     "inky",
     "RPi.GPIO",
     "pocketsphinx",
+    "spidev",
 ]
 
 [project.scripts]

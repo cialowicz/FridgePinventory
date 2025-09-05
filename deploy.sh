@@ -60,31 +60,38 @@ if ! command -v espeak-ng &> /dev/null; then
 fi
 echo "espeak-ng found at: $(which espeak-ng)"
  
-# Create and activate a virtual environment for Inky
+# Create and activate a virtual environment for e-Paper
 echo "DEBUG: Current user for venv: $(whoami)"
-echo "DEBUG: Target venv path: ~/.inky_venv which is $(eval echo ~/.inky_venv)"
-echo "Setting up virtual environment for Inky..."
-python3 -m venv ~/.inky_venv
+echo "DEBUG: Target venv path: ~/.epaper_venv which is $(eval echo ~/.epaper_venv)"
+echo "Setting up virtual environment for e-Paper..."
+python3 -m venv ~/.epaper_venv
  
 echo "DEBUG: Checking if venv was created..."
-if [ -f "$(eval echo ~/.inky_venv)/bin/activate" ]; then
+if [ -f "$(eval echo ~/.epaper_venv)/bin/activate" ]; then
     echo "DEBUG: Venv activate script FOUND."
 else
     echo "DEBUG: Venv activate script NOT FOUND. Venv creation likely FAILED. Exiting."
     exit 1
 fi
  
-source ~/.inky_venv/bin/activate
+source ~/.epaper_venv/bin/activate
 echo "DEBUG: Venv activated. 'which python' should point to venv: $(which python)"
 echo "DEBUG: 'pip --version' in venv: $(pip --version)"
  
-# Install Inky and other Python dependencies
+# Install Waveshare e-Paper library and other Python dependencies
 echo "Installing Python dependencies into venv..."
  
-echo "DEBUG: Attempting to install Inky..."
-pip install git+https://github.com/pimoroni/inky.git
-echo "DEBUG: Inky install command finished. Checking if inky is in pip list..."
-pip list | grep -i inky || echo "DEBUG: Inky NOT found in pip list after install attempt."
+echo "DEBUG: Installing Waveshare e-Paper library..."
+# Save current directory
+ORIG_DIR=$(pwd)
+cd /tmp
+rm -rf e-Paper
+git clone https://github.com/waveshareteam/e-Paper.git
+cd e-Paper/RaspberryPi_JetsonNano/python
+pip install -e .
+cd $ORIG_DIR
+echo "DEBUG: Waveshare install command finished."
+pip list | grep -i waveshare || echo "DEBUG: Waveshare library installed from source."
  
 echo "DEBUG: Attempting to install SpeechRecognition..."
 pip install SpeechRecognition
@@ -134,6 +141,21 @@ echo "DEBUG: Attempting to install pocketsphinx..."
 pip install pocketsphinx
 echo "DEBUG: pocketsphinx install command finished. Checking..."
 pip list | grep -i pocketsphinx || echo "DEBUG: pocketsphinx NOT found."
+
+echo "DEBUG: Attempting to install RPi.GPIO..."
+pip install RPi.GPIO
+echo "DEBUG: RPi.GPIO install command finished. Checking..."
+pip list | grep -i RPi.GPIO || echo "DEBUG: RPi.GPIO NOT found."
+
+echo "DEBUG: Attempting to install spidev..."
+pip install spidev
+echo "DEBUG: spidev install command finished. Checking..."
+pip list | grep -i spidev || echo "DEBUG: spidev NOT found."
+
+echo "DEBUG: Attempting to install Pillow..."
+pip install Pillow
+echo "DEBUG: Pillow install command finished. Checking..."
+pip list | grep -i Pillow || echo "DEBUG: Pillow NOT found."
  
 # Install the current project in editable mode into the venv
 echo "Installing FridgePinventory into virtual environment..."
@@ -168,10 +190,10 @@ WorkingDirectory=$(pwd)
 Environment="PYTHONPATH=$(pwd)/src"
 Environment="JACK_NO_AUDIO_RESERVATION=1"
 Environment="JACK_NO_START_SERVER=1"
-Environment="VIRTUAL_ENV=${SERVICE_USER_EFFECTIVE_HOME}/.inky_venv"
-Environment="PATH=${SERVICE_USER_EFFECTIVE_HOME}/.inky_venv/bin:$PATH"
+Environment="VIRTUAL_ENV=${SERVICE_USER_EFFECTIVE_HOME}/.epaper_venv"
+Environment="PATH=${SERVICE_USER_EFFECTIVE_HOME}/.epaper_venv/bin:$PATH"
 Environment="ESPEAK_DATA_PATH=/usr/share/espeak-ng-data"
-ExecStart=${SERVICE_USER_EFFECTIVE_HOME}/.inky_venv/bin/python -m pi_inventory_system.main
+ExecStart=${SERVICE_USER_EFFECTIVE_HOME}/.epaper_venv/bin/python -m pi_inventory_system.main
 Restart=always
 RestartSec=10
  

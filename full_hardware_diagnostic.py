@@ -2,7 +2,7 @@
 
 ###
 ### Run with:
-### source ~/.inky_venv/bin/activate && python3 full_hardware_diagnostic.py
+### source ~/.epaper_venv/bin/activate && python3 full_hardware_diagnostic.py
 ###
 
 import time
@@ -13,6 +13,8 @@ import subprocess
 # --- Test Configuration ---
 MOTION_SENSOR_PIN = 4
 MIC_TEST_DURATION = 3  # seconds
+DISPLAY_WIDTH = 800
+DISPLAY_HEIGHT = 480
 # ------------------------
 
 # --- Helper Functions ---
@@ -26,29 +28,43 @@ def print_status(message, status):
 
 def update_display(display, draw, image, font, lines):
     if display:
-        draw.rectangle((0, 0, display.width, display.height), fill=display.WHITE)
+        # Clear the image (white background for Waveshare)
+        draw.rectangle((0, 0, display.WIDTH, display.HEIGHT), fill=255)
         y = 5
         for line in lines:
-            draw.text((5, y), line, font=font, fill=display.BLACK)
-            y += font.getbbox('A')[3] + 2 # Height of font + 2px padding
-        display.set_image(image)
-        display.show()
+            draw.text((5, y), line, font=font, fill=0)  # Black text
+            bbox = font.getbbox('A')
+            y += bbox[3] - bbox[1] + 2  # Height of font + 2px padding
+        display.display_image(image)
 
 # --- Test Functions ---
 
 def test_display(lines, font):
     print_header("Display Test")
     try:
-        from inky.auto import auto
+        # Import the Waveshare display module
+        import sys
+        import os
+        # Add the project source to path
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+        from pi_inventory_system.waveshare_display import WaveshareDisplay
         from PIL import Image, ImageDraw
-        display = auto(verbose=True)
-        image = Image.new("P", (display.width, display.height))
-        draw = ImageDraw.Draw(image)
-        print_status("Inky display initialized", True)
-        lines.append("Display: OK")
-        return display, draw, image
+        
+        print("Initializing Waveshare 3.97\" e-Paper display...")
+        display = WaveshareDisplay()
+        if display.initialize():
+            # Create grayscale image for Waveshare
+            image = Image.new("L", (display.WIDTH, display.HEIGHT), 255)  # White background
+            draw = ImageDraw.Draw(image)
+            print_status("Waveshare display initialized", True)
+            lines.append("Display: OK")
+            return display, draw, image
+        else:
+            print_status("Waveshare display initialization failed", False)
+            lines.append("Display: FAIL")
+            return None, None, None
     except Exception as e:
-        print_status(f"Inky display initialization failed: {e}", False)
+        print_status(f"Display initialization failed: {e}", False)
         lines.append("Display: FAIL")
         return None, None, None
 
@@ -217,9 +233,17 @@ if __name__ == "__main__":
 
     if display:
         print_header("Finalizing Display")
-        print("Sending final summary to the eInk display...")
+        print("Sending final summary to the e-Paper display...")
         update_display(display, draw, image, font, display_lines)
-        print("Display update complete.")
+        print("Display update complete (refresh may take ~3.5 seconds).")
+        
+        # Clean up display resources
+        try:
+            if hasattr(display, 'cleanup'):
+                display.cleanup()
+                print("Display resources cleaned up.")
+        except Exception as e:
+            print(f"Warning: Failed to cleanup display: {e}")
 
     print_header("Diagnostic Complete")
     print("You can now restart the main service with: sudo systemctl start fridgepinventory.service")

@@ -5,14 +5,15 @@ An inventory management system for a chest freezer, built using a Raspberry Pi 5
 ## Components
 - Raspberry Pi 5
 - HC-SR501 PIR motion sensor (for automatic activation)
-- Inky wHAT 7" eInk Display (for persistent inventory display)
+- Waveshare 3.97" e-Paper HAT+ (800x480, 4-grayscale, for persistent inventory display)
 - USB speaker (for audio feedback)
 - USB microphone (for voice commands)
 
 ## Features
 - Voice command recognition with Google Speech-to-Text
 - Smart item name recognition (handles variations like "chicken wings" vs "wings")
-- Visual feedback via eInk display with a grid layout
+- Visual feedback via high-resolution e-Paper display (800x480) with optimized grid layout
+- Fast display refresh (3.5s) with 4-level grayscale support
 - Audio feedback for command success/failure
 - Motion detection to trigger listening mode
 - SQLite database for persistent storage
@@ -22,7 +23,7 @@ An inventory management system for a chest freezer, built using a Raspberry Pi 5
 
 ### For Raspberry Pi (Recommended)
 
-The easiest and recommended way to set up the FridgePinventory system on a Raspberry Pi is by using the provided deployment script. This script automates the installation of all system packages, Python dependencies within a dedicated virtual environment (`~/.inky_venv`), and configures the application to run as a systemd service.
+The easiest and recommended way to set up the FridgePinventory system on a Raspberry Pi is by using the provided deployment script. This script automates the installation of all system packages, Python dependencies within a dedicated virtual environment (`~/.epaper_venv`), and configures the application to run as a systemd service.
 
 1.  Ensure you have `git` installed on your Raspberry Pi:
     ```bash
@@ -44,7 +45,7 @@ The easiest and recommended way to set up the FridgePinventory system on a Raspb
     The script uses `sudo` internally for commands that require root privileges.
 5.  Follow any prompts from the script. A reboot is typically recommended after the script finishes to ensure all changes (like group memberships for hardware access) take effect. After rebooting, the `fridgepinventory` service should start automatically.
 
-The `deploy.sh` script handles the installation of numerous dependencies, including but not limited to: `python3-dev`, `portaudio19-dev`, `espeak-ng`, `swig` (for PocketSphinx), `libpulse-dev`, `raspi-gpio`, `python3-pil`, and Python libraries such as `inky`, `SpeechRecognition`, `pocketsphinx`, `spacy`, etc., into the `~/.inky_venv` virtual environment.
+The `deploy.sh` script handles the installation of numerous dependencies, including but not limited to: `python3-dev`, `portaudio19-dev`, `espeak-ng`, `swig` (for PocketSphinx), `libpulse-dev`, `raspi-gpio`, `python3-pil`, `python3-spidev`, and Python libraries such as the Waveshare e-Paper library, `SpeechRecognition`, `pocketsphinx`, `spacy`, `RPi.GPIO`, `spidev`, `Pillow`, etc., into the `~/.epaper_venv` virtual environment.
 
 ### For macOS / Other Development Environments (Manual Setup)
 
@@ -82,7 +83,7 @@ These instructions are for setting up a development environment on macOS or othe
 
 4. Connect the hardware components to the Raspberry Pi:
    - Connect the PIR sensor to GPIO pin 4
-   - Connect the Inky wHAT display via SPI
+   - Connect the Waveshare 3.97" e-Paper HAT+ via SPI (make sure SPI is enabled in raspi-config)
    - Connect USB speaker and microphone
 
 ## Running the Application

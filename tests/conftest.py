@@ -80,16 +80,10 @@ def mock_config():
 def mock_raspberry_pi():
     """Mock Raspberry Pi environment for display and GPIO tests."""
     # This mock ensures that when display_manager.py is imported and performs its initial checks,
-    # it believes it's on a Raspberry Pi and that the inky library's auto function is available.
-    mock_auto_function = MagicMock(name="mock_inky_auto_dot_auto_globally")
-    with patch('pi_inventory_system.display_manager._is_raspberry_pi', return_value=True) as mock_is_pi_internal, \
-         patch('inky.auto.auto', mock_auto_function) as mock_inky_auto_import_source:
-        # Because 'inky.auto.auto' is patched, the import in display_manager.py:
-        #   from inky.auto import auto as auto_inky_display
-        # will result in display_manager.auto_inky_display being mock_auto_function.
-        # Consequently, INKY_AVAILABLE will be set to True in display_manager.py.
-        # And display_manager.is_display_supported() will evaluate to True.
-        yield mock_is_pi_internal, mock_inky_auto_import_source
+    # it believes it's on a Raspberry Pi
+    with patch('pi_inventory_system.display_manager._is_raspberry_pi', return_value=True) as mock_is_pi_internal:
+        # The display manager now uses Waveshare display, not Inky
+        yield mock_is_pi_internal
 
 @pytest.fixture
 def mock_gpio_environment():
@@ -127,6 +121,9 @@ def db_connection(tmp_path):
 def mock_display():
     """Mock display for testing display-related functionality."""
     mock_display = MagicMock()
-    mock_display.WIDTH = 400
-    mock_display.HEIGHT = 300
+    mock_display.WIDTH = 800
+    mock_display.HEIGHT = 480
+    mock_display.display_image = MagicMock()
+    mock_display.clear = MagicMock()
+    mock_display.cleanup = MagicMock()
     return mock_display
