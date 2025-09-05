@@ -29,7 +29,7 @@ def test_process_command_invalid_command(controller):
               return_value=(None, None)):
         success, feedback = controller.process_command("invalid command")
         assert not success
-        assert feedback == "Command not recognized. Please try again with a valid command."
+        assert feedback == "Command not recognized. Please try again with add, remove, set, or undo."
 
 
 def test_process_command_failed_execution(controller):
@@ -40,7 +40,7 @@ def test_process_command_failed_execution(controller):
               return_value=("add", item)):
         success, feedback = controller.process_command("add chicken")
         assert not success
-        assert feedback == "Command failed to execute. Please try again."
+        assert feedback == "Command failed to execute. Please check inventory and try again."
 
 
 def test_process_command_successful_add(controller):

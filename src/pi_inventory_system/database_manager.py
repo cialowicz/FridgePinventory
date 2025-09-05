@@ -1,11 +1,11 @@
-# Database manager module - thread-safe database operations with proper resource management
+# Simplified database manager for single-threaded Pi application
 
 import sqlite3
 import os
 import glob
 import logging
 import threading
-from typing import List, Optional, ContextManager
+from typing import List, Optional
 from datetime import datetime
 from pathlib import Path
 from contextlib import contextmanager
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 class DatabaseManager:
-    """Thread-safe database manager for the FridgePinventory system."""
+    """Simple database manager optimized for Raspberry Pi with SQLite."""
     
     def __init__(self, db_path: Optional[str] = None):
         """Initialize the database manager.
@@ -26,8 +26,55 @@ class DatabaseManager:
         """
         self._db_path = db_path or config.get_database_path()
         self._lock = threading.RLock()
+        self._connection = None
         self._initialized = False
         self.initialize()
+    
+    def _get_connection(self) -> sqlite3.Connection:
+        """Get or create the database connection.
+        
+        For a single-threaded Pi application, we maintain one connection
+        for better performance and simplicity.
+        """
+        if self._connection is None:
+            try:
+                # Simple connection with sensible defaults for Pi
+                self._connection = sqlite3.connect(
+                    self._db_path, 
+                    timeout=30.0,
+                    isolation_level=None  # Autocommit mode
+                )
+                self._connection.row_factory = sqlite3.Row
+                
+                # Optimize for Pi's limited resources
+                self._connection.execute("PRAGMA journal_mode=WAL")
+                self._connection.execute("PRAGMA synchronous=NORMAL")
+                self._connection.execute("PRAGMA cache_size=500")
+                self._connection.execute("PRAGMA temp_store=MEMORY")
+                
+                logger.info(f"Database connection established to {self._db_path}")
+                
+            except Exception as e:
+                logger.error(f"Failed to create database connection: {e}")
+                self._connection = None
+                raise
+        
+        return self._connection
+    
+    @contextmanager
+    def _transaction(self):
+        """Simple transaction context manager."""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("BEGIN")
+            yield conn
+            cursor.execute("COMMIT")
+        except Exception:
+            cursor.execute("ROLLBACK")
+            raise
+        finally:
+            cursor.close()
     
     def initialize(self) -> None:
         """Initialize the database with all pending migrations."""
@@ -36,137 +83,75 @@ class DatabaseManager:
                 return
             
             try:
-                # Test connection first
-                with self._get_connection() as conn:
-                    # Create migrations table if it doesn't exist
-                    cursor = conn.cursor()
-                    cursor.execute("""
-                        CREATE TABLE IF NOT EXISTS migrations (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT,
-                            migration_name TEXT NOT NULL UNIQUE,
-                            applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                        )
-                    """)
-                    conn.commit()
-                    
-                    # Run all pending migrations
-                    pending_migrations = self._get_pending_migrations(conn)
-                    if pending_migrations:
-                        logger.info(f"Found {len(pending_migrations)} pending migrations")
-                        for migration_file in pending_migrations:
-                            self._run_migration(conn, migration_file)
-                    else:
-                        logger.info("No pending migrations found")
+                conn = self._get_connection()
+                
+                # Create migrations table
+                cursor = conn.cursor()
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS migrations (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        migration_name TEXT NOT NULL UNIQUE,
+                        applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                cursor.close()
+                
+                # Run pending migrations
+                self._run_migrations(conn)
                 
                 self._initialized = True
-                logger.info(f"Database initialized successfully at {self._db_path}")
+                logger.info("Database initialized successfully")
                     
             except Exception as e:
                 logger.error(f"Failed to initialize database: {e}")
                 raise
     
-    @contextmanager
-    def _get_connection(self) -> ContextManager[sqlite3.Connection]:
-        """Get a database connection with proper resource management."""
-        conn = None
-        try:
-            # Get database configuration
-            db_config = config.get_database_advanced_config()
-            timeout = db_config.get('timeout', 30.0)
-            
-            conn = sqlite3.connect(
-                self._db_path, 
-                timeout=timeout,
-                isolation_level=None  # Autocommit mode
-            )
-            conn.row_factory = sqlite3.Row
-            
-            # Configure database based on settings
-            if db_config.get('wal_mode', True):
-                conn.execute("PRAGMA journal_mode=WAL")
-            
-            sync_mode = db_config.get('synchronous_mode', 'NORMAL')
-            conn.execute(f"PRAGMA synchronous={sync_mode}")
-            
-            cache_size = db_config.get('cache_size', 1000)
-            conn.execute(f"PRAGMA cache_size={cache_size}")
-            
-            temp_store = db_config.get('temp_store', 'memory')
-            conn.execute(f"PRAGMA temp_store={temp_store}")
-            
-            yield conn
-        except Exception as e:
-            if conn:
-                conn.rollback()
-            logger.error(f"Database connection error: {e}")
-            raise
-        finally:
-            if conn:
-                conn.close()
-    
-    def _get_migrations_dir(self) -> str:
-        """Get the path to the migrations directory."""
+    def _run_migrations(self, conn: sqlite3.Connection):
+        """Run all pending migrations."""
+        # Get migrations directory
         current_dir = Path(__file__).parent
-        project_root = current_dir.parent.parent
-        return str(project_root / 'migrations')
-    
-    def _get_pending_migrations(self, conn: sqlite3.Connection) -> List[str]:
-        """Get a list of pending migrations that haven't been run yet."""
-        # Get all migration files
-        migrations_dir = self._get_migrations_dir()
-        migration_files = sorted(glob.glob(os.path.join(migrations_dir, '*.sql')))
+        migrations_dir = current_dir.parent.parent / 'migrations'
         
-        # Get migrations that have already been run
+        if not migrations_dir.exists():
+            logger.info("No migrations directory found")
+            return
+        
+        # Get applied migrations
         cursor = conn.cursor()
         cursor.execute("SELECT migration_name FROM migrations")
-        applied_migrations = {row[0] for row in cursor.fetchall()}
+        applied = {row[0] for row in cursor.fetchall()}
         
-        # Filter out migrations that have already been run
-        pending_migrations = []
+        # Run pending migrations
+        migration_files = sorted(migrations_dir.glob('*.sql'))
         for migration_file in migration_files:
-            migration_name = os.path.basename(migration_file)
-            if migration_name not in applied_migrations:
-                pending_migrations.append(migration_file)
+            migration_name = migration_file.name
+            if migration_name not in applied:
+                logger.info(f"Running migration: {migration_name}")
+                
+                # Read and execute migration
+                sql = migration_file.read_text()
+                cursor.executescript(sql)
+                
+                # Record migration
+                cursor.execute(
+                    "INSERT INTO migrations (migration_name) VALUES (?)",
+                    (migration_name,)
+                )
         
-        return pending_migrations
-    
-    def _run_migration(self, conn: sqlite3.Connection, migration_file: str) -> None:
-        """Run a single migration file."""
-        migration_name = os.path.basename(migration_file)
-        
-        try:
-            # Read and execute the migration
-            with open(migration_file, 'r') as f:
-                sql = f.read()
-            
-            cursor = conn.cursor()
-            cursor.execute("BEGIN TRANSACTION")
-            
-            # Execute the migration SQL
-            cursor.executescript(sql)
-            
-            # Record that the migration was run
-            cursor.execute(
-                "INSERT INTO migrations (migration_name) VALUES (?)",
-                (migration_name,)
-            )
-            
-            cursor.execute("COMMIT")
-            logger.info(f"Successfully ran migration: {migration_name}")
-            
-        except Exception as e:
-            cursor.execute("ROLLBACK")
-            logger.error(f"Error running migration {migration_name}: {e}")
-            raise
+        cursor.close()
     
     def get_current_quantity(self, item_name: str) -> int:
         """Get the current quantity of an item."""
         with self._lock:
-            with self._get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("SELECT quantity FROM inventory WHERE item_name = ?", (item_name,))
-                result = cursor.fetchone()
-                return result['quantity'] if result else 0
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT quantity FROM inventory WHERE item_name = ?", 
+                (item_name,)
+            )
+            result = cursor.fetchone()
+            cursor.close()
+            return result['quantity'] if result else 0
     
     def add_item(self, item_name: str, quantity: int) -> bool:
         """Add items to inventory."""
@@ -178,12 +163,14 @@ class DatabaseManager:
             
         with self._lock:
             try:
-                with self._get_connection() as conn:
+                with self._transaction() as conn:
                     cursor = conn.cursor()
-                    cursor.execute("BEGIN TRANSACTION")
                     
                     # Get current quantity
-                    cursor.execute("SELECT quantity FROM inventory WHERE item_name = ?", (item.item_name,))
+                    cursor.execute(
+                        "SELECT quantity FROM inventory WHERE item_name = ?",
+                        (item.item_name,)
+                    )
                     result = cursor.fetchone()
                     current = result['quantity'] if result else 0
                     new_quantity = current + item.quantity
@@ -200,7 +187,7 @@ class DatabaseManager:
                             (new_quantity, item.item_name)
                         )
                     
-                    # Record in history
+                    # Record history
                     cursor.execute(
                         """INSERT INTO inventory_history 
                            (item_name, previous_quantity, new_quantity, operation_type)
@@ -208,8 +195,9 @@ class DatabaseManager:
                         (item.item_name, current, new_quantity)
                     )
                     
-                    cursor.execute("COMMIT")
+                    cursor.close()
                     return True
+                    
             except Exception as e:
                 logger.error(f"Error adding item {item_name}: {e}")
                 return False
@@ -224,19 +212,19 @@ class DatabaseManager:
             
         with self._lock:
             try:
-                with self._get_connection() as conn:
+                with self._transaction() as conn:
                     cursor = conn.cursor()
-                    cursor.execute("BEGIN TRANSACTION")
                     
                     # Get current quantity
-                    cursor.execute("SELECT quantity FROM inventory WHERE item_name = ?", (item.item_name,))
+                    cursor.execute(
+                        "SELECT quantity FROM inventory WHERE item_name = ?",
+                        (item.item_name,)
+                    )
                     result = cursor.fetchone()
                     current = result['quantity'] if result else 0
                     
-                    if current < item.quantity:
-                        new_quantity = 0
-                    else:
-                        new_quantity = current - item.quantity
+                    # Calculate new quantity (allow going to 0)
+                    new_quantity = max(0, current - item.quantity)
                     
                     # Update inventory
                     cursor.execute(
@@ -244,7 +232,7 @@ class DatabaseManager:
                         (new_quantity, item.item_name)
                     )
                     
-                    # Record in history
+                    # Record history
                     cursor.execute(
                         """INSERT INTO inventory_history 
                            (item_name, previous_quantity, new_quantity, operation_type)
@@ -252,8 +240,9 @@ class DatabaseManager:
                         (item.item_name, current, new_quantity)
                     )
                     
-                    cursor.execute("COMMIT")
+                    cursor.close()
                     return True
+                    
             except Exception as e:
                 logger.error(f"Error removing item {item_name}: {e}")
                 return False
@@ -268,12 +257,14 @@ class DatabaseManager:
             
         with self._lock:
             try:
-                with self._get_connection() as conn:
+                with self._transaction() as conn:
                     cursor = conn.cursor()
-                    cursor.execute("BEGIN TRANSACTION")
                     
                     # Get current quantity
-                    cursor.execute("SELECT quantity FROM inventory WHERE item_name = ?", (item.item_name,))
+                    cursor.execute(
+                        "SELECT quantity FROM inventory WHERE item_name = ?",
+                        (item.item_name,)
+                    )
                     result = cursor.fetchone()
                     current = result['quantity'] if result else 0
                     
@@ -289,7 +280,7 @@ class DatabaseManager:
                             (item.quantity, item.item_name)
                         )
                     
-                    # Record in history
+                    # Record history
                     cursor.execute(
                         """INSERT INTO inventory_history 
                            (item_name, previous_quantity, new_quantity, operation_type)
@@ -297,8 +288,9 @@ class DatabaseManager:
                         (item.item_name, current, item.quantity)
                     )
                     
-                    cursor.execute("COMMIT")
+                    cursor.close()
                     return True
+                    
             except Exception as e:
                 logger.error(f"Error setting item {item_name}: {e}")
                 return False
@@ -307,15 +299,14 @@ class DatabaseManager:
         """Undo the last inventory change.
         
         Returns:
-            Tuple of (success, item_name) where item_name is the affected item
+            Tuple of (success, item_name)
         """
         with self._lock:
             try:
-                with self._get_connection() as conn:
+                with self._transaction() as conn:
                     cursor = conn.cursor()
-                    cursor.execute("BEGIN TRANSACTION")
                     
-                    # Get the last change
+                    # Get last change
                     cursor.execute(
                         """SELECT * FROM inventory_history 
                            ORDER BY id DESC LIMIT 1"""
@@ -323,17 +314,15 @@ class DatabaseManager:
                     last_change = cursor.fetchone()
                     
                     if not last_change:
-                        cursor.execute("ROLLBACK")
+                        cursor.close()
                         return False, None
-                        
-                    # Store the history ID to delete later
+                    
                     history_id = last_change['id']
                     item_name = last_change['item_name']
                     previous_quantity = last_change['previous_quantity']
                     
-                    # Update inventory directly
+                    # Restore previous quantity
                     if previous_quantity == 0:
-                        # Remove the item entirely if previous quantity was 0
                         cursor.execute(
                             "DELETE FROM inventory WHERE item_name = ?",
                             (item_name,)
@@ -344,14 +333,15 @@ class DatabaseManager:
                             (previous_quantity, item_name)
                         )
                     
-                    # Remove the change from history
+                    # Remove history entry
                     cursor.execute(
                         "DELETE FROM inventory_history WHERE id = ?",
                         (history_id,)
                     )
                     
-                    cursor.execute("COMMIT")
+                    cursor.close()
                     return True, item_name
+                    
             except Exception as e:
                 logger.error(f"Error undoing last change: {e}")
                 return False, None
@@ -359,27 +349,35 @@ class DatabaseManager:
     def get_inventory(self) -> List[tuple[str, int]]:
         """Get the current inventory state."""
         with self._lock:
-            with self._get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("SELECT item_name, quantity FROM inventory WHERE quantity > 0")
-                return [(row['item_name'], row['quantity']) for row in cursor.fetchall()]
-
-
-# Factory function to create database manager instances
-def create_database_manager(db_path: Optional[str] = None) -> DatabaseManager:
-    """Create a new database manager instance.
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT item_name, quantity FROM inventory WHERE quantity > 0"
+            )
+            result = [(row['item_name'], row['quantity']) for row in cursor.fetchall()]
+            cursor.close()
+            return result
     
-    Args:
-        db_path: Path to the database file. If None, uses config default.
-        
-    Returns:
-        DatabaseManager instance
-    """
+    def cleanup(self):
+        """Close the database connection."""
+        with self._lock:
+            if self._connection:
+                try:
+                    self._connection.close()
+                    logger.info("Database connection closed")
+                except Exception as e:
+                    logger.error(f"Error closing database: {e}")
+                finally:
+                    self._connection = None
+
+
+# Factory function
+def create_database_manager(db_path: Optional[str] = None) -> DatabaseManager:
+    """Create a new database manager instance."""
     return DatabaseManager(db_path)
 
 
-# Default database manager instance for backward compatibility
-# This will be replaced with dependency injection in the future
+# Default instance management
 _default_db_manager = None
 
 def get_default_db_manager() -> DatabaseManager:
@@ -389,5 +387,5 @@ def get_default_db_manager() -> DatabaseManager:
         _default_db_manager = create_database_manager()
     return _default_db_manager
 
-# Backward compatibility alias
+# Backward compatibility
 db_manager = get_default_db_manager()
