@@ -121,8 +121,25 @@ class WaveshareDisplay:
             logger.info("Clearing display...")
             self._display.Clear()
             
+            # Display a test pattern to confirm it's working
+            logger.info("Displaying test pattern...")
+            from PIL import Image, ImageDraw, ImageFont
+            test_image = Image.new("L", (self.WIDTH, self.HEIGHT), 255)  # White background
+            draw = ImageDraw.Draw(test_image)
+            try:
+                font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 32)
+            except:
+                font = ImageFont.load_default()
+            draw.text((50, 200), "Display Initialized", fill=0, font=font)
+            
+            # Send test pattern to display
+            if hasattr(self._display, 'display'):
+                self._display.display(self._display.getbuffer(test_image))
+            else:
+                self._display.display_4Gray(self._display.getbuffer_4Gray(test_image))
+            
             self._initialized = True
-            logger.info("Waveshare display initialized successfully")
+            logger.info("Waveshare display initialized successfully with test pattern")
             return True
             
         except Exception as e:
