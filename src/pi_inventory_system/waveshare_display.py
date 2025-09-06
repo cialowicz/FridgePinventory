@@ -175,7 +175,7 @@ class WaveshareDisplay:
     def clear(self):
         """Clear the display to white."""
         if not self._initialized:
-            self.initialize()
+            self.init_display()
             
         if self._display:
             try:
@@ -191,7 +191,7 @@ class WaveshareDisplay:
             image: PIL Image to display (should be 800x480)
         """
         if not self._initialized:
-            self.initialize()
+            self.init_display()
             
         if not self._display:
             logger.warning("No display available")
