@@ -26,59 +26,24 @@ def _setup_waveshare_lib():
             
         with open('/proc/device-tree/model', 'r') as f:
             if 'raspberry pi' not in f.read().lower():
-                logger.info("Not running on Raspberry Pi, using mock display")
-                return False
-        
-        # Try different import methods
-        try:
-            # Method 1: Try direct import if installed via pip
-            from waveshare_epd import epd3in97
-            epd = epd3in97
-            WAVESHARE_AVAILABLE = True
-            logger.info("Successfully imported waveshare_epd.epd3in97")
-            return True
-        except ImportError:
-            pass
-        
-        # Method 2: Try adding the lib path for manual installation
-        lib_paths = [
-            '/home/pi/e-Paper/RaspberryPi_JetsonNano/python/lib',
-            '/opt/e-Paper/RaspberryPi_JetsonNano/python/lib',
-            os.path.join(os.path.dirname(__file__), 'lib'),
-        ]
-        
-        for lib_path in lib_paths:
-            if os.path.exists(lib_path):
-                sys.path.insert(0, lib_path)
-                try:
-                    from waveshare_epd import epd3in97
-                    epd = epd3in97
-                    WAVESHARE_AVAILABLE = True
-                    logger.info(f"Successfully imported epd3in97 from {lib_path}")
-                    return True
-                except ImportError:
-                    continue
-        
-        # Method 3: Try importing as a standalone module
-        try:
-            import epd3in97
-            epd = epd3in97
-            WAVESHARE_AVAILABLE = True
-            logger.info("Successfully imported standalone epd3in97")
-            return True
-        except ImportError:
-            pass
-            
-        logger.warning("Could not import Waveshare library, will use mock display")
-        return False
-        
-    except Exception as e:
-        logger.error(f"Error setting up Waveshare library: {e}")
-        return False
+                logger.info("Not running on a Raspberry Pi, using mock display.")
+                WAVESHARE_AVAILABLE = False
+                return
+    except FileNotFoundError:
+        logger.info("Not running on a Raspberry Pi (or unable to detect), using mock display.")
+        WAVESHARE_AVAILABLE = False
+        return
 
-# Initialize on module load
-_setup_waveshare_lib()
+    try:
+        from waveshare_epd import epd3in97
+        WAVESHARE_AVAILABLE = True
+        logger.info("Waveshare EPD library found.")
+    except ImportError:
+        logger.error("Waveshare EPD library not found. Please run deploy.sh.")
+        WAVESHARE_AVAILABLE = False
 
+# Check for the library when the module is loaded.
+_check_pi_and_lib()
 
 class WaveshareDisplay:
     """Driver for Waveshare 3.97" e-Paper HAT+ display."""
@@ -97,22 +62,34 @@ class WaveshareDisplay:
         """Initialize the Waveshare display."""
         self._display = None
         self._initialized = False
-        
-    def initialize(self):
+        self._epd_instance = None
+        if WAVESHARE_AVAILABLE:
+            try:
+                from waveshare_epd import epd3in97
+                self._epd_instance = epd3in97.EPD()
+                self.width = self._epd_instance.width
+                self.height = self._epd_instance.height
+                self.init_display()
+            except Exception as e:
+                logger.error(f"Failed to initialize Waveshare display: {e}")
+                self._epd_instance = None
+        else:
+            logger.warning("Waveshare library not available. Using mock display.")
+            self.width = self.WIDTH
+            self.height = self.HEIGHT
+    
+    def init_display(self):
         """Initialize the display hardware."""
         if self._initialized:
             return True
             
-        if not WAVESHARE_AVAILABLE or not epd:
+        if not self._epd_instance:
             logger.warning("Waveshare library not available, using mock display")
             self._display = MockDisplay()
             self._initialized = True
             return True
             
         try:
-            # Create display instance
-            self._display = epd.EPD()
-            
             # Initialize the display
             logger.info("Initializing Waveshare 3.97\" display...")
             self._display.init()

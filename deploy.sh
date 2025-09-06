@@ -130,8 +130,8 @@ fi
 
 # Install the library
 echo "Installing Waveshare library..."
-# Manually copy the library files to the site-packages directory
-if ! cp -r lib/waveshare_epd "$(python3 -c 'import site; print(site.getsitepackages()[0])')/"; then
+# Use pip to install the library from the local setup.py
+if ! pip install .; then
     echo "ERROR: Failed to install Waveshare library"
     cd $ORIG_DIR
     exit 1
