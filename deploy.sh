@@ -130,7 +130,7 @@ fi
 
 # Install the library
 echo "Installing Waveshare library..."
-if ! pip install -e .; then
+if ! python3 setup.py install; then
     echo "ERROR: Failed to install Waveshare library"
     cd $ORIG_DIR
     exit 1
