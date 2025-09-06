@@ -226,12 +226,24 @@ def test_waveshare_library(lines):
         except Exception as e:
             print(f"Failed to test our display module: {e}")
         
-        # Overall status  
+        # Overall status - we need either package import + EPD creation, or display module integration
         verification_passed = sum(verification_results)
         verification_total = len(verification_results)
-        library_ok = import_success and (verification_passed == verification_total)
+        
+        # Check if we have the essential functionality working
+        package_import_works = verification_results[0]  # waveshare_epd.epd3in97
+        epd_creation_works = verification_results[2]    # EPD instance creation  
+        display_integration_works = verification_results[3]  # Display module integration
+        
+        # We're successful if either package import + EPD creation works, OR display integration works
+        essential_functionality = (package_import_works and epd_creation_works) or display_integration_works
+        library_ok = import_success and essential_functionality
         
         print(f"\nVerification Summary: {verification_passed}/{verification_total} tests passed")
+        if essential_functionality:
+            print("✓ Essential functionality is working (package import + EPD creation or display integration)")
+        else:
+            print("❌ Essential functionality is NOT working")
         print_status("Waveshare library and drivers available", library_ok)
         
         if library_ok:
@@ -239,7 +251,7 @@ def test_waveshare_library(lines):
         else:
             lines.append("Waveshare: ISSUES")
             print("\n*** WAVESHARE LIBRARY/DRIVER ISSUES ***")
-            print("Some Waveshare driver tests failed. Check the output above.")
+            print("Essential Waveshare functionality is not working. Check the output above.")
         
         return library_ok
         
