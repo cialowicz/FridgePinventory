@@ -130,25 +130,51 @@ fi
 
 # Install the library
 echo "Installing Waveshare library..."
-# Use pip to install the library from the local setup.py
-if ! pip install .; then
+# Use pip to install the library from the local setup.py with verbose output
+if ! pip install -v .; then
     echo "ERROR: Failed to install Waveshare library"
     cd $ORIG_DIR
     exit 1
 fi
+
+# Check what was actually installed
+echo "DEBUG: Checking installed package contents..."
+pip show waveshare-epd || echo "waveshare-epd package not found"
+python -c "import site; print('Site packages:', site.getsitepackages())" 2>/dev/null || true
 
 cd $ORIG_DIR
 echo "DEBUG: Waveshare install command finished."
 
 # Verify installation by trying to import
 echo "Verifying Waveshare library installation..."
-if python -c "import epd3in97; print('✓ epd3in97 import successful')" 2>/dev/null; then
+if python -c "from waveshare_epd import epd3in97; print('✓ waveshare_epd.epd3in97 import successful')" 2>/dev/null; then
     echo "✓ Waveshare library installed successfully"
-elif python -c "from waveshare_epaper import epd3in97; print('✓ waveshare_epaper.epd3in97 import successful')" 2>/dev/null; then
-    echo "✓ Waveshare library installed successfully"
+elif python -c "import epd3in97; print('✓ epd3in97 direct import successful')" 2>/dev/null; then
+    echo "✓ Waveshare library installed successfully (direct import)"
 else
     echo "WARNING: Waveshare library may not have installed correctly"
     echo "Library will fall back to mock display if hardware import fails"
+    echo "DEBUG: Testing various import methods..."
+    python -c "import sys; print('Python path:', sys.path)" 2>/dev/null || true
+    python -c "try: import waveshare_epd; print('waveshare_epd module found'); print('Available modules:', [x for x in dir(waveshare_epd) if 'epd' in x]); except Exception as e: print('waveshare_epd not found:', e)" 2>/dev/null || true
+    echo "DEBUG: Testing our actual display module import..."
+    python -c "
+import sys
+import os
+sys.path.insert(0, '$(pwd)/src')
+try:
+    from pi_inventory_system.waveshare_display import WaveshareDisplay, WAVESHARE_AVAILABLE
+    print(f'✓ Our waveshare_display module imports successfully')
+    print(f'✓ WAVESHARE_AVAILABLE = {WAVESHARE_AVAILABLE}')
+    if WAVESHARE_AVAILABLE:
+        print('✓ Waveshare library is available and should work on Pi')
+    else:
+        print('⚠ Waveshare library not available, will use mock display')
+except Exception as e:
+    print(f'✗ Error importing our waveshare_display module: {e}')
+    import traceback
+    traceback.print_exc()
+" 2>/dev/null || echo "Module import test failed"
 fi
  
 echo "DEBUG: Attempting to install SpeechRecognition..."
@@ -218,6 +244,37 @@ pip list | grep -i Pillow || echo "DEBUG: Pillow NOT found."
 # Install the current project in editable mode into the venv
 echo "Installing FridgePinventory into virtual environment..."
 pip install -e .
+
+# Final comprehensive test of the entire system
+echo "DEBUG: Final system integration test..."
+python -c "
+import sys
+import os
+try:
+    # Test main application can import display manager
+    from pi_inventory_system.display_manager import initialize_display
+    print('✓ Display manager imports successfully')
+    
+    # Test waveshare display module
+    from pi_inventory_system.waveshare_display import WaveshareDisplay, WAVESHARE_AVAILABLE
+    print('✓ Waveshare display module imports successfully')
+    print(f'✓ WAVESHARE_AVAILABLE = {WAVESHARE_AVAILABLE}')
+    
+    # Try creating a display instance (should work even on non-Pi with mock)
+    display = WaveshareDisplay()
+    print('✓ WaveshareDisplay instance created successfully')
+    
+    if WAVESHARE_AVAILABLE:
+        print('🎉 SUCCESS: Waveshare library is properly installed and ready for Pi deployment!')
+    else:
+        print('⚠️  INFO: Mock display will be used (expected when not on Pi)')
+        
+except Exception as e:
+    print(f'❌ FAILED: System integration test failed: {e}')
+    import traceback
+    traceback.print_exc()
+    sys.exit(1)
+"
  
 # Deactivate the virtual environment
 deactivate

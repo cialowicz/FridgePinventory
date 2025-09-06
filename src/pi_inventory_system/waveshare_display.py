@@ -43,7 +43,7 @@ def _setup_waveshare_lib():
         WAVESHARE_AVAILABLE = False
 
 # Check for the library when the module is loaded.
-_check_pi_and_lib()
+_setup_waveshare_lib()
 
 class WaveshareDisplay:
     """Driver for Waveshare 3.97" e-Paper HAT+ display."""
@@ -92,16 +92,16 @@ class WaveshareDisplay:
         try:
             # Initialize the display
             logger.info("Initializing Waveshare 3.97\" display...")
-            self._display.init()
+            self._epd_instance.init()
             
             # Clear the display
             logger.info("Clearing display...")
-            self._display.Clear()
+            self._epd_instance.Clear()
             
             # Initialize 4Gray mode for better quality
             logger.info("Initializing 4Gray mode...")
-            if hasattr(self._display, 'init_4GRAY'):
-                self._display.init_4GRAY()
+            if hasattr(self._epd_instance, 'init_4GRAY'):
+                self._epd_instance.init_4GRAY()
             
             # Display a test pattern to confirm it's working
             logger.info("Displaying test pattern...")
@@ -119,7 +119,10 @@ class WaveshareDisplay:
             draw.text((50, 250), "Initialized!", fill=170, font=font)   # Light gray
             
             # Send test pattern to display using 4Gray method
-            self._display.display_4Gray(self._display.getbuffer_4Gray(test_image))
+            self._epd_instance.display_4Gray(self._epd_instance.getbuffer_4Gray(test_image))
+            
+            # Set the display instance for future use
+            self._display = self._epd_instance
             
             self._initialized = True
             logger.info("Waveshare display initialized successfully with test pattern")
