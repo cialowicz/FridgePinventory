@@ -149,7 +149,7 @@ def display_inventory(display, inventory, config_manager):
         font = _load_font(config_manager, size=font_size)
         
         # Get color configuration
-        color_config = config_manager.get_display_config().get('colors', {})
+        color_config = config_manager.get('display', 'colors', default={})
         
         # Calculate layout for 800x480 display
         layout_config = config_manager.get_layout_config()
