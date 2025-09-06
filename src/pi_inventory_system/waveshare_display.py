@@ -32,10 +32,10 @@ def _setup_waveshare_lib():
         # Try different import methods
         try:
             # Method 1: Try direct import if installed via pip
-            from waveshare_epaper import epd3in97
+            from waveshare_epd import epd3in97
             epd = epd3in97
             WAVESHARE_AVAILABLE = True
-            logger.info("Successfully imported waveshare_epaper.epd3in97")
+            logger.info("Successfully imported waveshare_epd.epd3in97")
             return True
         except ImportError:
             pass
@@ -51,7 +51,7 @@ def _setup_waveshare_lib():
             if os.path.exists(lib_path):
                 sys.path.insert(0, lib_path)
                 try:
-                    from waveshare_epaper import epd3in97
+                    from waveshare_epd import epd3in97
                     epd = epd3in97
                     WAVESHARE_AVAILABLE = True
                     logger.info(f"Successfully imported epd3in97 from {lib_path}")

@@ -129,7 +129,7 @@ def test_waveshare_library(lines):
         # Try importing
         import_success = False
         import_methods = [
-            "from waveshare_epaper import epd3in97",
+            "from waveshare_epd import epd3in97",
             "import epd3in97"
         ]
         
