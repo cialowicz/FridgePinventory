@@ -142,44 +142,32 @@ echo "DEBUG: Checking installed package contents..."
 pip show waveshare-epd || echo "waveshare-epd package not found"
 python -c "import site; print('Site packages:', site.getsitepackages())" 2>/dev/null || true
 
-# Check if epd3in97 driver exists, if not, try to add it
-echo "DEBUG: Checking for epd3in97 driver..."
+# Install epd3in97 driver from our repo
+echo "DEBUG: Installing epd3in97 driver from repository..."
 if ! python -c "import epd3in97" 2>/dev/null; then
-    echo "epd3in97 driver not found, checking for correct driver file..."
+    echo "Installing epd3in97 driver from repo..."
     
-    # Look for the driver file in common locations
-    DRIVER_FILE_FOUND=false
-    for search_path in "/home/admin/Downloads/3in97_e-Paper/RaspberryPi_JetsonNano/python/lib/waveshare_epd/epd3in97.py" \
-                      "/tmp/3in97_e-Paper/RaspberryPi_JetsonNano/python/lib/waveshare_epd/epd3in97.py" \
-                      "./epd3in97.py"; do
-        if [ -f "$search_path" ]; then
-            echo "Found epd3in97 driver at: $search_path"
-            
-            # Copy to the waveshare_epd package directory
-            SITE_PACKAGES=$(python -c "import site; print(site.getsitepackages()[0])" 2>/dev/null)
-            if [ -n "$SITE_PACKAGES" ] && [ -d "$SITE_PACKAGES/waveshare_epd" ]; then
-                echo "Installing epd3in97 driver to: $SITE_PACKAGES/waveshare_epd/"
-                cp "$search_path" "$SITE_PACKAGES/waveshare_epd/"
-                
-                # Also copy epdconfig.py if it exists and is newer
-                EPDCONFIG_SOURCE=$(dirname "$search_path")/epdconfig.py
-                if [ -f "$EPDCONFIG_SOURCE" ]; then
-                    echo "Also copying epdconfig.py..."
-                    cp "$EPDCONFIG_SOURCE" "$SITE_PACKAGES/waveshare_epd/"
-                fi
-                
-                DRIVER_FILE_FOUND=true
-                echo "✓ epd3in97 driver installed successfully"
-                break
-            else
-                echo "Could not find waveshare_epd package directory"
-            fi
+    # Get the site-packages location
+    SITE_PACKAGES=$(python -c "import site; print(site.getsitepackages()[0])" 2>/dev/null)
+    if [ -n "$SITE_PACKAGES" ] && [ -d "$SITE_PACKAGES/waveshare_epd" ]; then
+        # Copy driver files from our repo
+        REPO_DRIVERS="$(pwd)/waveshare_drivers"
+        if [ -f "$REPO_DRIVERS/epd3in97.py" ] && [ -f "$REPO_DRIVERS/epdconfig.py" ]; then
+            echo "Installing drivers from: $REPO_DRIVERS"
+            echo "  -> $SITE_PACKAGES/waveshare_epd/"
+            cp "$REPO_DRIVERS/epd3in97.py" "$SITE_PACKAGES/waveshare_epd/"
+            cp "$REPO_DRIVERS/epdconfig.py" "$SITE_PACKAGES/waveshare_epd/"
+            echo "✓ epd3in97 driver installed successfully from repository"
+        else
+            echo "❌ ERROR: Driver files not found in repository at $REPO_DRIVERS"
+            echo "   Expected files:"
+            echo "     - $REPO_DRIVERS/epd3in97.py"
+            echo "     - $REPO_DRIVERS/epdconfig.py"
+            exit 1
         fi
-    done
-    
-    if [ "$DRIVER_FILE_FOUND" = false ]; then
-        echo "⚠️  WARNING: epd3in97 driver file not found in expected locations"
-        echo "   Please ensure the 3.97 e-Paper demo files are available"
+    else
+        echo "❌ ERROR: Could not find waveshare_epd package directory at $SITE_PACKAGES"
+        exit 1
     fi
 else
     echo "✓ epd3in97 driver already available"
