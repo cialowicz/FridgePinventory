@@ -39,6 +39,132 @@ def update_display(display, draw, image, font, lines):
 
 # --- Test Functions ---
 
+def test_spi_interface(lines):
+    print_header("SPI Interface Check")
+    try:
+        # Check if SPI devices exist
+        spi_devices = ['/dev/spidev0.0', '/dev/spidev0.1']
+        spi_exists = any(os.path.exists(device) for device in spi_devices)
+        
+        for device in spi_devices:
+            exists = os.path.exists(device)
+            print(f"SPI device {device}: {'EXISTS' if exists else 'MISSING'}")
+        
+        # Check if SPI is enabled in config
+        try:
+            with open('/boot/config.txt', 'r') as f:
+                config_content = f.read()
+                spi_line = None
+                for line in config_content.split('\n'):
+                    if 'dtparam=spi=on' in line:
+                        spi_line = line.strip()
+                        break
+                
+                if spi_line and not spi_line.startswith('#'):
+                    print("SPI enabled in /boot/config.txt: YES")
+                    config_enabled = True
+                else:
+                    print("SPI enabled in /boot/config.txt: NO")
+                    config_enabled = False
+        except Exception as e:
+            print(f"Could not check /boot/config.txt: {e}")
+            config_enabled = False
+        
+        # Check lsmod for SPI modules
+        try:
+            result = subprocess.run(['lsmod'], capture_output=True, text=True)
+            spi_modules = [line for line in result.stdout.split('\n') if 'spi' in line.lower()]
+            modules_loaded = len(spi_modules) > 0
+            print(f"SPI kernel modules loaded: {'YES' if modules_loaded else 'NO'}")
+            if spi_modules:
+                for module in spi_modules[:3]:  # Show first 3
+                    print(f"  {module}")
+        except Exception as e:
+            print(f"Could not check kernel modules: {e}")
+            modules_loaded = False
+        
+        # Overall SPI status
+        spi_ok = spi_exists and config_enabled
+        print_status("SPI interface ready", spi_ok)
+        
+        if spi_ok:
+            lines.append("SPI: OK")
+        else:
+            lines.append("SPI: DISABLED")
+            print("\n*** SPI ISSUE DETECTED ***")
+            print("To enable SPI:")
+            print("1. Run: sudo raspi-config")
+            print("2. Go to: Interface Options -> SPI -> Enable")
+            print("3. Reboot with: sudo reboot")
+        
+        return spi_ok
+        
+    except Exception as e:
+        print_status(f"SPI check failed: {e}", False)
+        lines.append("SPI: ERROR")
+        return False
+
+def test_waveshare_library(lines):
+    print_header("Waveshare Library Check")
+    try:
+        # Check common library paths
+        lib_paths = [
+            '/home/admin/e-Paper/RaspberryPi_JetsonNano/python/lib',
+            '/home/pi/e-Paper/RaspberryPi_JetsonNano/python/lib',
+            '/opt/e-Paper/RaspberryPi_JetsonNano/python/lib',
+        ]
+        
+        lib_found = False
+        for lib_path in lib_paths:
+            exists = os.path.exists(lib_path)
+            print(f"Library path {lib_path}: {'EXISTS' if exists else 'MISSING'}")
+            if exists:
+                lib_found = True
+                try:
+                    epd_files = [f for f in os.listdir(lib_path) if f.startswith('epd3in97')]
+                    print(f"  EPD3in97 files: {epd_files}")
+                except:
+                    pass
+        
+        # Try importing
+        import_success = False
+        import_methods = [
+            "from waveshare_epaper import epd3in97",
+            "import epd3in97"
+        ]
+        
+        for method in import_methods:
+            try:
+                # Add lib paths to sys.path for testing
+                for lib_path in lib_paths:
+                    if os.path.exists(lib_path) and lib_path not in sys.path:
+                        sys.path.insert(0, lib_path)
+                
+                exec(method)
+                print(f"Import SUCCESS: {method}")
+                import_success = True
+                break
+            except ImportError as e:
+                print(f"Import FAILED: {method} - {str(e)[:60]}...")
+        
+        # Overall status
+        library_ok = lib_found and import_success
+        print_status("Waveshare library available", library_ok)
+        
+        if library_ok:
+            lines.append("Waveshare Lib: OK")
+        else:
+            lines.append("Waveshare Lib: MISSING")
+            print("\n*** WAVESHARE LIBRARY ISSUE ***")
+            print("The Waveshare e-Paper library may need to be installed.")
+        
+        return library_ok
+        
+    except Exception as e:
+        print_status(f"Library check failed: {e}", False)
+        lines.append("Waveshare Lib: ERROR")
+        return False
+
 def test_display(lines, font):
     print_header("Display Test")
     try:
@@ -229,7 +355,19 @@ if __name__ == "__main__":
         font = ImageFont.load_default()
 
     display_lines = ["Hardware Diagnostic:"]
-    display, draw, image = test_display(display_lines, font)
+    
+    # Test SPI and Waveshare library first - these are prerequisites for display
+    spi_ok = test_spi_interface(display_lines)
+    waveshare_ok = test_waveshare_library(display_lines)
+    
+    # Only test display if prerequisites are met
+    if spi_ok and waveshare_ok:
+        display, draw, image = test_display(display_lines, font)
+    else:
+        print("\n*** SKIPPING DISPLAY TEST ***")
+        print("SPI or Waveshare library issues detected. Fix these first.")
+        display, draw, image = None, None, None
+        display_lines.append("Display: SKIPPED")
     
     test_audio_devices(display_lines)
     test_speaker(display_lines)
