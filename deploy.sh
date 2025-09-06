@@ -154,10 +154,15 @@ if ! python -c "import epd3in97" 2>/dev/null; then
         REPO_DRIVERS="$ORIG_DIR/waveshare_drivers"
         if [ -f "$REPO_DRIVERS/epd3in97.py" ] && [ -f "$REPO_DRIVERS/epdconfig.py" ]; then
             echo "Installing drivers from: $REPO_DRIVERS"
-            echo "  -> $SITE_PACKAGES/waveshare_epd/"
+            echo "  -> $SITE_PACKAGES/waveshare_epd/ (for waveshare_epd.epd3in97 import)"
             cp "$REPO_DRIVERS/epd3in97.py" "$SITE_PACKAGES/waveshare_epd/"
             cp "$REPO_DRIVERS/epdconfig.py" "$SITE_PACKAGES/waveshare_epd/"
-            echo "✓ epd3in97 driver installed successfully from repository"
+            
+            echo "  -> $SITE_PACKAGES/ (for direct epd3in97 import)"
+            cp "$REPO_DRIVERS/epd3in97.py" "$SITE_PACKAGES/"
+            cp "$REPO_DRIVERS/epdconfig.py" "$SITE_PACKAGES/"
+            
+            echo "✓ epd3in97 driver installed successfully from repository (both import methods)"
         else
             echo "❌ ERROR: Driver files not found in repository at $REPO_DRIVERS"
             echo "   Expected files:"
@@ -271,6 +276,11 @@ echo "DEBUG: Attempting to install Pillow..."
 pip install Pillow
 echo "DEBUG: Pillow install command finished. Checking..."
 pip list | grep -i Pillow || echo "DEBUG: Pillow NOT found."
+
+echo "DEBUG: Attempting to install gpiozero..."
+pip install gpiozero
+echo "DEBUG: gpiozero install command finished. Checking..."
+pip list | grep -i gpiozero || echo "DEBUG: gpiozero NOT found."
  
 # Install the current project in editable mode into the venv
 echo "Installing FridgePinventory into virtual environment..."

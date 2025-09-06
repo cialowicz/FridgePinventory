@@ -25,6 +25,7 @@ dependencies = [
     "RPi.GPIO",
     "pocketsphinx",
     "spidev",
+    "gpiozero",
 ]
 
 [project.scripts]
