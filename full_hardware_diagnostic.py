@@ -27,7 +27,7 @@ def print_status(message, status):
     return status
 
 def update_display(display, draw, image, font, lines):
-    if display:
+    if display and draw and image:
         # Clear the image (white background for Waveshare)
         draw.rectangle((0, 0, display.WIDTH, display.HEIGHT), fill=255)
         y = 5
@@ -36,6 +36,8 @@ def update_display(display, draw, image, font, lines):
             bbox = font.getbbox('A')
             y += bbox[3] - bbox[1] + 2  # Height of font + 2px padding
         display.display_image(image)
+    else:
+        print("Display update skipped - display, draw, or image is None")
 
 # --- Test Functions ---
 
@@ -186,8 +188,9 @@ def test_display(lines, font):
     print_header("Display Test")
     display, draw, image = None, None, None
     try:
-        # Dynamically import the waveshare library
+        # Import required modules
         from pi_inventory_system.waveshare_display import WaveshareDisplay
+        from PIL import Image, ImageDraw
         print("Successfully imported WaveshareDisplay.")
 
         # Initialize display
