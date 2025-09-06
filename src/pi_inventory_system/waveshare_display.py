@@ -12,11 +12,12 @@ logger = logging.getLogger(__name__)
 
 # Try to import the Waveshare library
 WAVESHARE_AVAILABLE = False
-epd = None
+epd_module = None
+epd_driver_name = None
 
 def _setup_waveshare_lib():
     """Setup the Waveshare library path and import the module."""
-    global WAVESHARE_AVAILABLE, epd
+    global WAVESHARE_AVAILABLE, epd_module, epd_driver_name
     
     try:
         # Check if we're on a Raspberry Pi
@@ -34,12 +35,47 @@ def _setup_waveshare_lib():
         WAVESHARE_AVAILABLE = False
         return
 
-    try:
-        from waveshare_epd import epd3in97
-        WAVESHARE_AVAILABLE = True
-        logger.info("Waveshare EPD library found.")
-    except ImportError:
-        logger.error("Waveshare EPD library not found. Please run deploy.sh.")
+    # Try multiple possible drivers for 3.97" display (800x480)
+    # epd3in97 is the correct driver for 3.97" HAT+ (4-level grayscale)
+    possible_drivers = ['epd3in97', 'epd7in5', 'epd4in2', 'epd3in7']
+    epd_module = None
+    epd_driver_name = None
+    
+    for driver_name in possible_drivers:
+        try:
+            test_module = __import__(driver_name)
+            # Check if this driver has the right resolution for our 3.97" display
+            if hasattr(test_module, 'EPD'):
+                test_epd = test_module.EPD()
+                if hasattr(test_epd, 'width') and hasattr(test_epd, 'height'):
+                    logger.info(f"Testing driver {driver_name}: {test_epd.width}x{test_epd.height}")
+                    if test_epd.width == 800 and test_epd.height == 480:
+                        logger.info(f"Found matching driver {driver_name} for 800x480 display")
+                        epd_module = test_module
+                        epd_driver_name = driver_name
+                        WAVESHARE_AVAILABLE = True
+                        break
+                    elif abs(test_epd.width - 800) <= 100 and abs(test_epd.height - 480) <= 100:
+                        logger.info(f"Found close driver {driver_name} for display")
+                        epd_module = test_module
+                        epd_driver_name = driver_name
+                        WAVESHARE_AVAILABLE = True
+                        break
+                else:
+                    logger.info(f"Driver {driver_name} found but no width/height attributes")
+                    epd_module = test_module
+                    epd_driver_name = driver_name
+                    WAVESHARE_AVAILABLE = True
+                    break
+        except ImportError:
+            logger.debug(f"Driver {driver_name} not available")
+            continue
+        except Exception as e:
+            logger.debug(f"Error testing driver {driver_name}: {e}")
+            continue
+    
+    if epd_module is None:
+        logger.error("No suitable Waveshare EPD driver found. Please run deploy.sh.")
         WAVESHARE_AVAILABLE = False
 
 # Check for the library when the module is loaded.
@@ -63,12 +99,13 @@ class WaveshareDisplay:
         self._display = None
         self._initialized = False
         self._epd_instance = None
-        if WAVESHARE_AVAILABLE:
+        if WAVESHARE_AVAILABLE and epd_module:
             try:
-                from waveshare_epd import epd3in97
-                self._epd_instance = epd3in97.EPD()
-                self.width = self._epd_instance.width
-                self.height = self._epd_instance.height
+                logger.info(f"Using Waveshare driver: {epd_driver_name}")
+                self._epd_instance = epd_module.EPD()
+                self.width = getattr(self._epd_instance, 'width', self.WIDTH)
+                self.height = getattr(self._epd_instance, 'height', self.HEIGHT)
+                logger.info(f"Display dimensions: {self.width}x{self.height}")
                 self.init_display()
             except Exception as e:
                 logger.error(f"Failed to initialize Waveshare display: {e}")

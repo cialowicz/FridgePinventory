@@ -126,29 +126,46 @@ def test_waveshare_library(lines):
                 except:
                     pass
         
-        # Try importing
+        # Try importing available drivers
         import_success = False
-        import_methods = [
-            "from waveshare_epd import epd3in97",
-            "import epd3in97"
-        ]
+        driver_found = None
+        available_drivers = ['epd3in97', 'epd7in5', 'epd4in2', 'epd3in7', 'epd2in7', 'epd1in54']
         
-        for method in import_methods:
+        print("Testing available EPD drivers...")
+        for driver_name in available_drivers:
             try:
-                # Add lib paths to sys.path for testing
-                for lib_path in lib_paths:
-                    if os.path.exists(lib_path) and lib_path not in sys.path:
-                        sys.path.insert(0, lib_path)
-                
-                exec(method)
-                print(f"Import SUCCESS: {method}")
-                import_success = True
-                break
-            except ImportError as e:
-                print(f"Import FAILED: {method} - {str(e)[:60]}...")
+                test_module = __import__(driver_name)
+                if hasattr(test_module, 'EPD'):
+                    test_epd = test_module.EPD()
+                    width = getattr(test_epd, 'width', 'unknown')
+                    height = getattr(test_epd, 'height', 'unknown')
+                    print(f"Driver {driver_name}: FOUND ({width}x{height})")
+                    if not import_success:  # Use first available driver
+                        import_success = True
+                        driver_found = driver_name
+                else:
+                    print(f"Driver {driver_name}: NO EPD CLASS")
+            except ImportError:
+                print(f"Driver {driver_name}: NOT AVAILABLE")
+            except Exception as e:
+                print(f"Driver {driver_name}: ERROR - {str(e)[:40]}...")
         
-        # Overall status
-        library_ok = lib_found and import_success
+        if import_success:
+            print(f"Will use driver: {driver_found}")
+        
+        # Test our waveshare_display module
+        try:
+            from pi_inventory_system.waveshare_display import WAVESHARE_AVAILABLE, epd_driver_name
+            if WAVESHARE_AVAILABLE:
+                print(f"Our display module detected driver: {epd_driver_name}")
+                import_success = True
+            else:
+                print("Our display module reports: No driver available")
+        except Exception as e:
+            print(f"Failed to test our display module: {e}")
+        
+        # Overall status  
+        library_ok = import_success
         print_status("Waveshare library available", library_ok)
         
         if library_ok:
