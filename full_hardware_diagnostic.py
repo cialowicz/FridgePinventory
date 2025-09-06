@@ -212,7 +212,7 @@ def test_display(lines, font):
 
         # Display the image
         print("Sending image to display...")
-        display.display(image)
+        display.display_image(image)
         print("Image sent to display.")
 
         time.sleep(5)
