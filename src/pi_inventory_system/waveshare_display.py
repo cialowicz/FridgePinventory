@@ -42,34 +42,62 @@ def _setup_waveshare_lib():
     epd_driver_name = None
     
     for driver_name in possible_drivers:
+        # Try importing from waveshare_epd package first (preferred method)
         try:
-            test_module = __import__(driver_name)
+            waveshare_epd = __import__('waveshare_epd', fromlist=[driver_name])
+            test_module = getattr(waveshare_epd, driver_name)
             # Check if this driver has the right resolution for our 3.97" display
             if hasattr(test_module, 'EPD'):
                 test_epd = test_module.EPD()
                 if hasattr(test_epd, 'width') and hasattr(test_epd, 'height'):
-                    logger.info(f"Testing driver {driver_name}: {test_epd.width}x{test_epd.height}")
+                    logger.info(f"Testing driver waveshare_epd.{driver_name}: {test_epd.width}x{test_epd.height}")
                     if test_epd.width == 800 and test_epd.height == 480:
-                        logger.info(f"Found matching driver {driver_name} for 800x480 display")
+                        logger.info(f"Found matching driver waveshare_epd.{driver_name} for 800x480 display")
                         epd_module = test_module
-                        epd_driver_name = driver_name
+                        epd_driver_name = f"waveshare_epd.{driver_name}"
                         WAVESHARE_AVAILABLE = True
                         break
                     elif abs(test_epd.width - 800) <= 100 and abs(test_epd.height - 480) <= 100:
-                        logger.info(f"Found close driver {driver_name} for display")
+                        logger.info(f"Found close driver waveshare_epd.{driver_name} for display")
+                        epd_module = test_module
+                        epd_driver_name = f"waveshare_epd.{driver_name}"
+                        WAVESHARE_AVAILABLE = True
+                        break
+                else:
+                    logger.info(f"Driver waveshare_epd.{driver_name} found but no width/height attributes")
+                    epd_module = test_module
+                    epd_driver_name = f"waveshare_epd.{driver_name}"
+                    WAVESHARE_AVAILABLE = True
+                    break
+        except (ImportError, AttributeError):
+            # Fallback: try importing directly (may fail for drivers with relative imports)
+            try:
+                test_module = __import__(driver_name)
+                if hasattr(test_module, 'EPD'):
+                    test_epd = test_module.EPD()
+                    if hasattr(test_epd, 'width') and hasattr(test_epd, 'height'):
+                        logger.info(f"Testing driver {driver_name}: {test_epd.width}x{test_epd.height}")
+                        if test_epd.width == 800 and test_epd.height == 480:
+                            logger.info(f"Found matching driver {driver_name} for 800x480 display")
+                            epd_module = test_module
+                            epd_driver_name = driver_name
+                            WAVESHARE_AVAILABLE = True
+                            break
+                        elif abs(test_epd.width - 800) <= 100 and abs(test_epd.height - 480) <= 100:
+                            logger.info(f"Found close driver {driver_name} for display")
+                            epd_module = test_module
+                            epd_driver_name = driver_name
+                            WAVESHARE_AVAILABLE = True
+                            break
+                    else:
+                        logger.info(f"Driver {driver_name} found but no width/height attributes")
                         epd_module = test_module
                         epd_driver_name = driver_name
                         WAVESHARE_AVAILABLE = True
                         break
-                else:
-                    logger.info(f"Driver {driver_name} found but no width/height attributes")
-                    epd_module = test_module
-                    epd_driver_name = driver_name
-                    WAVESHARE_AVAILABLE = True
-                    break
-        except ImportError:
-            logger.debug(f"Driver {driver_name} not available")
-            continue
+            except ImportError:
+                logger.debug(f"Driver {driver_name} not available via either import method")
+                continue
         except Exception as e:
             logger.debug(f"Error testing driver {driver_name}: {e}")
             continue

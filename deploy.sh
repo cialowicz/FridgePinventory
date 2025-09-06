@@ -158,11 +158,7 @@ if ! python -c "import epd3in97" 2>/dev/null; then
             cp "$REPO_DRIVERS/epd3in97.py" "$SITE_PACKAGES/waveshare_epd/"
             cp "$REPO_DRIVERS/epdconfig.py" "$SITE_PACKAGES/waveshare_epd/"
             
-            echo "  -> $SITE_PACKAGES/ (for direct epd3in97 import)"
-            cp "$REPO_DRIVERS/epd3in97.py" "$SITE_PACKAGES/"
-            cp "$REPO_DRIVERS/epdconfig.py" "$SITE_PACKAGES/"
-            
-            echo "✓ epd3in97 driver installed successfully from repository (both import methods)"
+            echo "✓ epd3in97 driver installed successfully from repository"
         else
             echo "❌ ERROR: Driver files not found in repository at $REPO_DRIVERS"
             echo "   Expected files:"
