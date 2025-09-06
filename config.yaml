@@ -56,7 +56,7 @@ system:
 hardware:
   motion_sensor:
     enabled: true
-    pin: null  # GPIO pin number, null for auto-detect
+    pin: 4  # GPIO pin number
   display:
     enabled: true
     auto_detect: true

@@ -38,6 +38,8 @@ class MotionSensorManager:
     def _get_motion_config(self):
         """Safely retrieve motion sensor config as a plain dict."""
         try:
+            if self._config is None:
+                return {}
             hw = self._config.get_hardware_config()
         except Exception:
             hw = {}

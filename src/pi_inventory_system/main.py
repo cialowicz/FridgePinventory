@@ -95,7 +95,7 @@ class FridgePinventoryApp:
             self.display = initialize_display()
         
         # Initialize inventory controller with our database manager and display instance
-        self.controller = InventoryController(self.db_manager, self.display)
+        self.controller = InventoryController(self.db_manager, self.display, self.config_manager)
 
         # Play startup sound
         if audio_ok:
