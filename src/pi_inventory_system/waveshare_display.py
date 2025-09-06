@@ -121,22 +121,28 @@ class WaveshareDisplay:
             logger.info("Clearing display...")
             self._display.Clear()
             
+            # Initialize 4Gray mode for better quality
+            logger.info("Initializing 4Gray mode...")
+            if hasattr(self._display, 'init_4GRAY'):
+                self._display.init_4GRAY()
+            
             # Display a test pattern to confirm it's working
             logger.info("Displaying test pattern...")
             from PIL import Image, ImageDraw, ImageFont
-            test_image = Image.new("L", (self.WIDTH, self.HEIGHT), 255)  # White background
+            test_image = Image.new("L", (self.WIDTH, self.HEIGHT), 255)  # Grayscale white background
             draw = ImageDraw.Draw(test_image)
             try:
                 font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 32)
             except:
                 font = ImageFont.load_default()
-            draw.text((50, 200), "Display Initialized", fill=0, font=font)
             
-            # Send test pattern to display
-            if hasattr(self._display, 'display'):
-                self._display.display(self._display.getbuffer(test_image))
-            else:
-                self._display.display_4Gray(self._display.getbuffer_4Gray(test_image))
+            # Use different gray levels for better visibility
+            draw.text((50, 150), "FridgePinventory", fill=0, font=font)  # Black
+            draw.text((50, 200), "4Gray Display", fill=85, font=font)   # Dark gray
+            draw.text((50, 250), "Initialized!", fill=170, font=font)   # Light gray
+            
+            # Send test pattern to display using 4Gray method
+            self._display.display_4Gray(self._display.getbuffer_4Gray(test_image))
             
             self._initialized = True
             logger.info("Waveshare display initialized successfully with test pattern")
@@ -181,20 +187,21 @@ class WaveshareDisplay:
                 # Resize image to fit
                 image = image.resize((self.WIDTH, self.HEIGHT), Image.LANCZOS)
             
-            # Convert to grayscale if needed
-            if image.mode != 'L':
-                image = image.convert('L')
-            
-            # Display the image
+            # Display the image based on mode
             logger.debug("Updating display with new image...")
             start_time = time.time()
             
-            if hasattr(self._display, 'display'):
-                # For newer API
-                self._display.display(self._display.getbuffer(image))
-            else:
-                # For older API
+            if image.mode == 'L':
+                # Grayscale mode - use 4Gray display
+                logger.debug("Using 4Gray display mode")
                 self._display.display_4Gray(self._display.getbuffer_4Gray(image))
+            else:
+                # 1-bit or other mode - convert to 1-bit and use basic display
+                if image.mode != '1':
+                    logger.debug("Converting image to 1-bit mode")
+                    image = image.convert('1')
+                logger.debug("Using basic display mode")
+                self._display.display(self._display.getbuffer(image))
             
             elapsed = time.time() - start_time
             logger.info(f"Display updated in {elapsed:.1f} seconds")
@@ -216,6 +223,24 @@ class WaveshareDisplay:
         # Waveshare doesn't have a separate border setting
         pass
     
+    def init_fast(self):
+        """Initialize display for fast refresh mode."""
+        if self._display and hasattr(self._display, 'init_Fast'):
+            try:
+                self._display.init_Fast()
+                logger.info("Display initialized in fast mode")
+            except Exception as e:
+                logger.error(f"Error initializing fast mode: {e}")
+    
+    def init_4gray(self):
+        """Initialize display for 4-level grayscale mode."""
+        if self._display and hasattr(self._display, 'init_4GRAY'):
+            try:
+                self._display.init_4GRAY()
+                logger.info("Display initialized in 4Gray mode")
+            except Exception as e:
+                logger.error(f"Error initializing 4Gray mode: {e}")
+    
     def cleanup(self):
         """Clean up display resources."""
         if self._display and self._initialized:
@@ -227,6 +252,12 @@ class WaveshareDisplay:
                 elif hasattr(self._display, 'Sleep'):
                     self._display.Sleep()
                     logger.info("Display put to sleep")
+                    
+                # Call module exit for proper cleanup (like in example)
+                if hasattr(self._display, 'epdconfig'):
+                    self._display.epdconfig.module_exit(cleanup=True)
+                    logger.debug("EPD module cleanup called")
+                    
             except Exception as e:
                 logger.error(f"Error during display cleanup: {e}")
 
