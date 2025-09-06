@@ -106,8 +106,53 @@ def test_spi_interface(lines):
         lines.append("SPI: ERROR")
         return False
 
+def test_waveshare_driver_import():
+    """Test if the epd3in97 driver can be imported."""
+    try:
+        from waveshare_epd import epd3in97
+        print("✓ Successfully imported waveshare_epd.epd3in97")
+        return True
+    except ImportError as e:
+        print(f"❌ Failed to import waveshare_epd.epd3in97: {e}")
+        return False
+
+def test_waveshare_direct_import():
+    """Test if the epd3in97 driver can be imported directly."""
+    try:
+        import epd3in97
+        print("✓ Successfully imported epd3in97 directly")
+        return True
+    except ImportError as e:
+        print(f"❌ Failed to import epd3in97 directly: {e}")
+        return False
+
+def test_epd_creation():
+    """Test if an EPD instance can be created."""
+    try:
+        from waveshare_epd import epd3in97
+        epd = epd3in97.EPD()
+        print(f"✓ Successfully created EPD instance: {epd.width}x{epd.height}")
+        return True
+    except Exception as e:
+        print(f"❌ Failed to create EPD instance: {e}")
+        return False
+
+def test_display_module_integration():
+    """Test if our display module can detect the driver."""
+    try:
+        from pi_inventory_system.waveshare_display import WAVESHARE_AVAILABLE, epd_driver_name
+        if WAVESHARE_AVAILABLE:
+            print(f"✓ Our display module detected driver: {epd_driver_name}")
+            return True
+        else:
+            print("❌ Our display module reports: No driver available")
+            return False
+    except Exception as e:
+        print(f"❌ Failed to test our display module: {e}")
+        return False
+
 def test_waveshare_library(lines):
-    print_header("Waveshare Library Check")
+    print_header("Waveshare Library & Driver Verification")
     try:
         # Check common library paths
         lib_paths = [
@@ -155,7 +200,22 @@ def test_waveshare_library(lines):
         if import_success:
             print(f"Will use driver: {driver_found}")
         
-        # Test our waveshare_display module
+        # Run comprehensive driver verification tests
+        print("\n--- Comprehensive Driver Verification ---")
+        tests = [
+            ("Driver Import (waveshare_epd.epd3in97)", test_waveshare_driver_import),
+            ("Direct Import (epd3in97)", test_waveshare_direct_import),
+            ("EPD Instance Creation", test_epd_creation),
+            ("Display Module Integration", test_display_module_integration)
+        ]
+        
+        verification_results = []
+        for test_name, test_func in tests:
+            print(f"Testing: {test_name}")
+            result = test_func()
+            verification_results.append(result)
+        
+        # Test our waveshare_display module (legacy check)
         try:
             from pi_inventory_system.waveshare_display import WAVESHARE_AVAILABLE, epd_driver_name
             if WAVESHARE_AVAILABLE:
@@ -167,21 +227,25 @@ def test_waveshare_library(lines):
             print(f"Failed to test our display module: {e}")
         
         # Overall status  
-        library_ok = import_success
-        print_status("Waveshare library available", library_ok)
+        verification_passed = sum(verification_results)
+        verification_total = len(verification_results)
+        library_ok = import_success and (verification_passed == verification_total)
+        
+        print(f"\nVerification Summary: {verification_passed}/{verification_total} tests passed")
+        print_status("Waveshare library and drivers available", library_ok)
         
         if library_ok:
-            lines.append("Waveshare Lib: OK")
+            lines.append("Waveshare: OK")
         else:
-            lines.append("Waveshare Lib: MISSING")
-            print("\n*** WAVESHARE LIBRARY ISSUE ***")
-            print("The Waveshare e-Paper library may need to be installed.")
+            lines.append("Waveshare: ISSUES")
+            print("\n*** WAVESHARE LIBRARY/DRIVER ISSUES ***")
+            print("Some Waveshare driver tests failed. Check the output above.")
         
         return library_ok
         
     except Exception as e:
         print_status(f"Library check failed: {e}", False)
-        lines.append("Waveshare Lib: ERROR")
+        lines.append("Waveshare: ERROR")
         return False
 
 def test_display(lines, font):

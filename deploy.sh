@@ -150,8 +150,8 @@ if ! python -c "import epd3in97" 2>/dev/null; then
     # Get the site-packages location
     SITE_PACKAGES=$(python -c "import site; print(site.getsitepackages()[0])" 2>/dev/null)
     if [ -n "$SITE_PACKAGES" ] && [ -d "$SITE_PACKAGES/waveshare_epd" ]; then
-        # Copy driver files from our repo
-        REPO_DRIVERS="$(pwd)/waveshare_drivers"
+        # Copy driver files from our project repo (not from /tmp/e-Paper)
+        REPO_DRIVERS="$ORIG_DIR/waveshare_drivers"
         if [ -f "$REPO_DRIVERS/epd3in97.py" ] && [ -f "$REPO_DRIVERS/epdconfig.py" ]; then
             echo "Installing drivers from: $REPO_DRIVERS"
             echo "  -> $SITE_PACKAGES/waveshare_epd/"
