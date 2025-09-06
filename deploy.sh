@@ -281,7 +281,12 @@ echo "DEBUG: Attempting to install gpiozero..."
 pip install gpiozero
 echo "DEBUG: gpiozero install command finished. Checking..."
 pip list | grep -i gpiozero || echo "DEBUG: gpiozero NOT found."
- 
+
+echo "DEBUG: Attempting to install lgpio..."
+pip install lgpio
+echo "DEBUG: lgpio install command finished. Checking..."
+pip list | grep -i lgpio || echo "DEBUG: lgpio NOT found."
+
 # Install the current project in editable mode into the venv
 echo "Installing FridgePinventory into virtual environment..."
 pip install -e .
