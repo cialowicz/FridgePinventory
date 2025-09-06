@@ -52,7 +52,7 @@ def test_spi_interface(lines):
         
         # Check if SPI is enabled in config
         try:
-            with open('/boot/config.txt', 'r') as f:
+            with open('/boot/firmware/config.txt', 'r') as f:
                 config_content = f.read()
                 spi_line = None
                 for line in config_content.split('\n'):
@@ -61,13 +61,13 @@ def test_spi_interface(lines):
                         break
                 
                 if spi_line and not spi_line.startswith('#'):
-                    print("SPI enabled in /boot/config.txt: YES")
+                    print("SPI enabled in /boot/firmware/config.txt: YES")
                     config_enabled = True
                 else:
-                    print("SPI enabled in /boot/config.txt: NO")
+                    print("SPI enabled in /boot/firmware/config.txt: NO")
                     config_enabled = False
         except Exception as e:
-            print(f"Could not check /boot/config.txt: {e}")
+            print(f"Could not check /boot/firmware/config.txt: {e}")
             config_enabled = False
         
         # Check lsmod for SPI modules
@@ -166,6 +166,52 @@ def test_waveshare_library(lines):
         return False
 
 def test_display(lines, font):
+    print_header("Display Test")
+    display, draw, image = None, None, None
+    try:
+        # Dynamically import the waveshare library
+        from pi_inventory_system.waveshare_display import WaveshareDisplay
+        print("Successfully imported WaveshareDisplay.")
+
+        # Initialize display
+        print("Initializing display...")
+        display = WaveshareDisplay()
+        print("Display initialized successfully.")
+
+        print("Creating image buffer...")
+        image = Image.new('1', (display.width, display.height), 255) # 1-bit, white background
+        draw = ImageDraw.Draw(image)
+        print("Image buffer created.")
+
+        # Test drawing
+        print("Drawing test pattern...")
+        draw.rectangle([(0,0),(display.width-1, display.height-1)], outline = 0)
+        draw.rectangle([(10,10),(display.width-11, display.height-11)], outline = 0)
+        draw.text((20, 20), 'Display Test: OK', font=font, fill=0)
+        print("Test pattern drawn.")
+
+        # Display the image
+        print("Sending image to display...")
+        display.display(image)
+        print("Image sent to display.")
+
+        time.sleep(5)
+
+        print("Clearing display...")
+        display.clear()
+        print("Display cleared.")
+
+        print_status("Display test", True)
+        lines.append("Display: OK")
+
+    except Exception as e:
+        print(f"ERROR: An error occurred during the display test: {e}")
+        import traceback
+        traceback.print_exc()
+        print_status("Display test", False)
+        lines.append("Display: FAIL")
+
+    return display, draw, image
     print_header("Display Test")
     try:
         # Import the Waveshare display module
