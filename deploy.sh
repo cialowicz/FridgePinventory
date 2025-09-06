@@ -22,6 +22,31 @@ fi
 sudo rm -f /etc/systemd/system/fridgepinventory.service
 sudo systemctl daemon-reload
  
+# Check and enable SPI interface
+echo "Checking SPI interface..."
+if ! ls /dev/spidev0.* &> /dev/null; then
+    echo "WARNING: SPI devices not found. SPI interface may not be enabled."
+    echo "Checking /boot/config.txt..."
+    
+    if grep -q "^dtparam=spi=on" /boot/config.txt; then
+        echo "SPI is enabled in config but devices not found. You may need to reboot."
+    elif grep -q "^#dtparam=spi=on" /boot/config.txt; then
+        echo "Enabling SPI in /boot/config.txt..."
+        sudo sed -i 's/^#dtparam=spi=on/dtparam=spi=on/' /boot/config.txt
+        echo "SPI enabled. REBOOT REQUIRED after this script completes!"
+    elif grep -q "dtparam=spi=off" /boot/config.txt; then
+        echo "Enabling SPI in /boot/config.txt..."
+        sudo sed -i 's/dtparam=spi=off/dtparam=spi=on/' /boot/config.txt
+        echo "SPI enabled. REBOOT REQUIRED after this script completes!"
+    else
+        echo "Adding SPI enable to /boot/config.txt..."
+        echo "dtparam=spi=on" | sudo tee -a /boot/config.txt
+        echo "SPI enabled. REBOOT REQUIRED after this script completes!"
+    fi
+else
+    echo "SPI interface is enabled and working."
+fi
+
 # Install system dependencies required for building packages
 echo "Installing system dependencies..."
 sudo apt update
@@ -86,12 +111,44 @@ echo "DEBUG: Installing Waveshare e-Paper library..."
 ORIG_DIR=$(pwd)
 cd /tmp
 rm -rf e-Paper
-git clone https://github.com/waveshareteam/e-Paper.git
+
+# Clone Waveshare repository
+echo "Cloning Waveshare e-Paper repository..."
+if ! git clone https://github.com/waveshareteam/e-Paper.git; then
+    echo "ERROR: Failed to clone Waveshare repository"
+    cd $ORIG_DIR
+    exit 1
+fi
+
 cd e-Paper/RaspberryPi_JetsonNano/python
-pip install -e .
+
+# Install requirements first
+if [ -f requirements.txt ]; then
+    echo "Installing Waveshare requirements..."
+    pip install -r requirements.txt
+fi
+
+# Install the library
+echo "Installing Waveshare library..."
+if ! pip install -e .; then
+    echo "ERROR: Failed to install Waveshare library"
+    cd $ORIG_DIR
+    exit 1
+fi
+
 cd $ORIG_DIR
 echo "DEBUG: Waveshare install command finished."
-pip list | grep -i waveshare || echo "DEBUG: Waveshare library installed from source."
+
+# Verify installation by trying to import
+echo "Verifying Waveshare library installation..."
+if python -c "import epd3in97; print('✓ epd3in97 import successful')" 2>/dev/null; then
+    echo "✓ Waveshare library installed successfully"
+elif python -c "from waveshare_epaper import epd3in97; print('✓ waveshare_epaper.epd3in97 import successful')" 2>/dev/null; then
+    echo "✓ Waveshare library installed successfully"
+else
+    echo "WARNING: Waveshare library may not have installed correctly"
+    echo "Library will fall back to mock display if hardware import fails"
+fi
  
 echo "DEBUG: Attempting to install SpeechRecognition..."
 pip install SpeechRecognition
@@ -207,6 +264,19 @@ sudo systemctl daemon-reload
 sudo systemctl enable fridgepinventory.service
  
 echo "Setup complete! The service will start automatically on boot."
-echo "To start the service now, run: sudo systemctl start fridgepinventory.service"
+
+# Check if reboot is needed
+if ! ls /dev/spidev0.* &> /dev/null; then
+    echo ""
+    echo "⚠️  IMPORTANT: REBOOT REQUIRED ⚠️"
+    echo "SPI interface was enabled but requires a reboot to take effect."
+    echo "After rebooting:"
+    echo "  1. Run 'python3 full_hardware_diagnostic.py' to verify hardware"
+    echo "  2. Start the service: sudo systemctl start fridgepinventory.service"
+    echo ""
+else
+    echo "To start the service now, run: sudo systemctl start fridgepinventory.service"
+fi
+
 echo "To check the status, run: sudo systemctl status fridgepinventory.service"
 echo "To view logs, run: journalctl -u fridgepinventory.service -f"
