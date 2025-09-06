@@ -201,28 +201,36 @@ def test_audio_devices(lines):
     print_header("Audio Device Listing")
     try:
         import pyaudio
-        pa = pyaudio.PyAudio()
-        print("\nInput Devices (Microphones):")
-        mic_found = False
-        for i in range(pa.get_device_count()):
-            info = pa.get_device_info_by_index(i)
-            if info.get('maxInputChannels') > 0:
-                mic_found = True
-                print(f"  - Index {info['index']}: {info['name']}")
-        if not mic_found:
-            print("  No input devices found.")
+        import contextlib
+        import os
         
-        print("\nOutput Devices (Speakers):")
-        speaker_found = False
-        for i in range(pa.get_device_count()):
-            info = pa.get_device_info_by_index(i)
-            if info.get('maxOutputChannels') > 0:
-                speaker_found = True
-                print(f"  - Index {info['index']}: {info['name']}")
-        if not speaker_found:
-            print("  No output devices found.")
+        # Suppress ALSA error messages
+        with open(os.devnull, 'w') as devnull:
+            with contextlib.redirect_stderr(devnull):
+                pa = pyaudio.PyAudio()
+                
+                print("\nInput Devices (Microphones):")
+                mic_found = False
+                for i in range(pa.get_device_count()):
+                    info = pa.get_device_info_by_index(i)
+                    if info.get('maxInputChannels') > 0:
+                        mic_found = True
+                        print(f"  - Index {info['index']}: {info['name']}")
+                if not mic_found:
+                    print("  No input devices found.")
+                
+                print("\nOutput Devices (Speakers):")
+                speaker_found = False
+                for i in range(pa.get_device_count()):
+                    info = pa.get_device_info_by_index(i)
+                    if info.get('maxOutputChannels') > 0:
+                        speaker_found = True
+                        print(f"  - Index {info['index']}: {info['name']}")
+                if not speaker_found:
+                    print("  No output devices found.")
 
-        pa.terminate()
+                pa.terminate()
+                
         print_status("Audio device scan complete", True)
         lines.append("Audio List: OK")
     except Exception as e:
@@ -252,16 +260,23 @@ def test_microphone(lines):
     print_header("Microphone Test")
     try:
         import pyaudio
-        pa = pyaudio.PyAudio()
-        print(f"Recording for {MIC_TEST_DURATION} seconds... Speak now!")
-        stream = pa.open(format=pyaudio.paInt16, channels=1, rate=16000, input=True, frames_per_buffer=1024)
-        frames = []
-        for _ in range(0, int(16000 / 1024 * MIC_TEST_DURATION)):
-            data = stream.read(1024)
-            frames.append(data)
-        stream.stop_stream()
-        stream.close()
-        pa.terminate()
+        import contextlib
+        import os
+        
+        # Suppress ALSA error messages
+        with open(os.devnull, 'w') as devnull:
+            with contextlib.redirect_stderr(devnull):
+                pa = pyaudio.PyAudio()
+                print(f"Recording for {MIC_TEST_DURATION} seconds... Speak now!")
+                stream = pa.open(format=pyaudio.paInt16, channels=1, rate=16000, input=True, frames_per_buffer=1024)
+                frames = []
+                for _ in range(0, int(16000 / 1024 * MIC_TEST_DURATION)):
+                    data = stream.read(1024)
+                    frames.append(data)
+                stream.stop_stream()
+                stream.close()
+                pa.terminate()
+                
         print("Recording complete.")
         is_silent = all(b == 0 for b in b''.join(frames))
         if not is_silent:
