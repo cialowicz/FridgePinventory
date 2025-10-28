@@ -143,6 +143,10 @@ class WaveshareDisplay:
             self.width = self.WIDTH
             self.height = self.HEIGHT
     
+    def initialize(self):
+        """Backwards-compatible initializer that mirrors init_display."""
+        return self.init_display()
+    
     def init_display(self):
         """Initialize the display hardware."""
         if self._initialized:
@@ -155,44 +159,47 @@ class WaveshareDisplay:
             return True
             
         try:
-            # Initialize the display
             logger.info("Initializing Waveshare 3.97\" display...")
-            self._epd_instance.init()
-            
-            # Clear the display
+            using_4gray = False
+
+            if hasattr(self._epd_instance, 'init_4GRAY'):
+                logger.info("Calling init_4GRAY() for 4-level grayscale waveform")
+                init_result = self._epd_instance.init_4GRAY()
+                using_4gray = True
+            else:
+                init_result = self._epd_instance.init()
+
+            if init_result == -1:
+                raise RuntimeError("EPD init routine returned error code -1")
+
             logger.info("Clearing display...")
             self._epd_instance.Clear()
-            
-            # Initialize 4Gray mode for better quality
-            logger.info("Initializing 4Gray mode...")
-            if hasattr(self._epd_instance, 'init_4GRAY'):
-                self._epd_instance.init_4GRAY()
-            
-            # Display a test pattern to confirm it's working
+
             logger.info("Displaying test pattern...")
             from PIL import Image, ImageDraw, ImageFont
             test_image = Image.new("L", (self.WIDTH, self.HEIGHT), 255)  # Grayscale white background
             draw = ImageDraw.Draw(test_image)
             try:
                 font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 32)
-            except:
+            except Exception:
                 font = ImageFont.load_default()
-            
-            # Use different gray levels for better visibility
+
             draw.text((50, 150), "FridgePinventory", fill=0, font=font)  # Black
             draw.text((50, 200), "4Gray Display", fill=85, font=font)   # Dark gray
             draw.text((50, 250), "Initialized!", fill=170, font=font)   # Light gray
-            
-            # Send test pattern to display using 4Gray method
-            self._epd_instance.display_4Gray(self._epd_instance.getbuffer_4Gray(test_image))
-            
-            # Set the display instance for future use
+
+            if using_4gray and hasattr(self._epd_instance, 'display_4Gray'):
+                buffer = self._epd_instance.getbuffer_4Gray(test_image)
+                self._epd_instance.display_4Gray(buffer)
+            else:
+                buffer = self._epd_instance.getbuffer(test_image.convert('1'))
+                self._epd_instance.display(buffer)
+
             self._display = self._epd_instance
-            
             self._initialized = True
             logger.info("Waveshare display initialized successfully with test pattern")
             return True
-            
+
         except Exception as e:
             logger.error(f"Failed to initialize Waveshare display: {e}")
             # Fall back to mock display
@@ -335,6 +342,9 @@ class MockDisplay:
     
     def display_4Gray(self, buffer):
         logger.debug("Mock: 4-gray image displayed")
+
+    def initialize(self):
+        return True
     
     def sleep(self):
         logger.debug("Mock: Display sleeping")

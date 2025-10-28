@@ -85,15 +85,17 @@ class RaspberryPi:
 
     def digital_read(self, pin):
         if pin == self.BUSY_PIN:
-            return self.GPIO_BUSY_PIN.value
+            return int(self.GPIO_BUSY_PIN.value)
         elif pin == self.RST_PIN:
-            return self.RST_PIN.value
+            return int(self.GPIO_RST_PIN.value)
         elif pin == self.DC_PIN:
-            return self.DC_PIN.value
+            return int(self.GPIO_DC_PIN.value)
         # elif pin == self.CS_PIN:
         #     return self.CS_PIN.value
         elif pin == self.PWR_PIN:
-            return self.PWR_PIN.value
+            return int(self.GPIO_PWR_PIN.value)
+        else:
+            raise ValueError(f"Unsupported pin read requested: {pin}")
 
     def delay_ms(self, delaytime):
         time.sleep(delaytime / 1000.0)

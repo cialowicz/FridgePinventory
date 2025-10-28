@@ -40,3 +40,6 @@ ENV/
 pi_inventory_system.egg-info/
 *.db
 *.sqlite3
+inventory.db-shm
+inventory.db-wal
+

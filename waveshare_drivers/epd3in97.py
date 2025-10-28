@@ -401,16 +401,20 @@ class EPD:
         self.TurnOnDisplay()
 
     def display_Partial(self, Image, Xstart, Ystart, Xend, Yend):
-        if((Xstart % 8 + Xend % 8 == 8 & Xstart % 8 > Xend % 8) | Xstart % 8 + Xend % 8 == 0 | (Xend - Xstart)%8 == 0):
-            Xstart = Xstart // 8 * 8
-            Xend = Xend // 8 * 8
+        start_mod = Xstart % 8
+        end_mod = Xend % 8
+        if ((start_mod + end_mod == 8 and start_mod > end_mod) or
+            (start_mod + end_mod == 0) or
+            ((Xend - Xstart) % 8 == 0)):
+            Xstart = (Xstart // 8) * 8
+            Xend = (Xend // 8) * 8
         else:
-            Xstart = Xstart // 8 * 8
-            if Xend % 8 == 0:
-                Xend = Xend // 8 * 8
+            Xstart = (Xstart // 8) * 8
+            if end_mod == 0:
+                Xend = (Xend // 8) * 8
             else:
-                Xend = Xend // 8 * 8 + 1
-                
+                Xend = ((Xend // 8) * 8) + 8
+
         Width = (Xend - Xstart) // 8
         Height = Yend - Ystart
 
