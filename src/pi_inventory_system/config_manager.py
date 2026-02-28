@@ -119,7 +119,7 @@ class ConfigManager:
             },
             'database_advanced': {
                 'timeout': 30.0,
-                'wal_mode': True,
+                'wal_mode': 'WAL',
                 'cache_size': 1000,
                 'synchronous_mode': 'NORMAL',
                 'temp_store': 'memory'

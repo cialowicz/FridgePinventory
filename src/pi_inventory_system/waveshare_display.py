@@ -14,10 +14,11 @@ logger = logging.getLogger(__name__)
 WAVESHARE_AVAILABLE = False
 epd_module = None
 epd_driver_name = None
+_epdconfig = None  # captured alongside the driver so cleanup can call module_exit
 
 def _setup_waveshare_lib():
     """Setup the Waveshare library path and import the module."""
-    global WAVESHARE_AVAILABLE, epd_module, epd_driver_name
+    global WAVESHARE_AVAILABLE, epd_module, epd_driver_name, _epdconfig
     
     try:
         # Check if we're on a Raspberry Pi
@@ -105,6 +106,9 @@ def _setup_waveshare_lib():
     if epd_module is None:
         logger.error("No suitable Waveshare EPD driver found. Please run deploy.sh.")
         WAVESHARE_AVAILABLE = False
+    elif hasattr(epd_module, 'epdconfig'):
+        _epdconfig = epd_module.epdconfig
+        logger.info("epdconfig module captured for cleanup")
 
 # Check for the library when the module is loaded.
 _setup_waveshare_lib()
@@ -116,11 +120,12 @@ class WaveshareDisplay:
     WIDTH = 800
     HEIGHT = 480
     
-    # Grayscale levels (4-level)
-    WHITE = 0xFF
-    LIGHT_GRAY = 0xAA
-    DARK_GRAY = 0x55
-    BLACK = 0x00
+    # Grayscale levels (4-level) — must match driver's GRAY1-GRAY4 values
+    # so getbuffer_4Gray maps them to the correct display levels
+    WHITE = 0xFF      # driver GRAY1
+    LIGHT_GRAY = 0xC0 # driver GRAY2
+    DARK_GRAY = 0x80  # driver GRAY3
+    BLACK = 0x00      # driver GRAY4
     
     def __init__(self):
         """Initialize the Waveshare display."""
@@ -188,9 +193,9 @@ class WaveshareDisplay:
             draw.text((50, 200), "4Gray Display", fill=85, font=font)   # Dark gray
             draw.text((50, 250), "Initialized!", fill=170, font=font)   # Light gray
 
-            if using_4gray and hasattr(self._epd_instance, 'display_4Gray'):
+            if using_4gray and hasattr(self._epd_instance, 'display_4GRAY'):
                 buffer = self._epd_instance.getbuffer_4Gray(test_image)
-                self._epd_instance.display_4Gray(buffer)
+                self._epd_instance.display_4GRAY(buffer)
             else:
                 buffer = self._epd_instance.getbuffer(test_image.convert('1'))
                 self._epd_instance.display(buffer)
@@ -246,7 +251,7 @@ class WaveshareDisplay:
             if image.mode == 'L':
                 # Grayscale mode - use 4Gray display
                 logger.debug("Using 4Gray display mode")
-                self._display.display_4Gray(self._display.getbuffer_4Gray(image))
+                self._display.display_4GRAY(self._display.getbuffer_4Gray(image))
             else:
                 # 1-bit or other mode - convert to 1-bit and use basic display
                 if image.mode != '1':
@@ -305,9 +310,11 @@ class WaveshareDisplay:
                     self._display.Sleep()
                     logger.info("Display put to sleep")
                     
-                # Call module exit for proper cleanup (like in example)
-                if hasattr(self._display, 'epdconfig'):
-                    self._display.epdconfig.module_exit(cleanup=True)
+                # Call module_exit(cleanup=True) to release gpiozero resources.
+                # sleep() already called module_exit() to close SPI/power; this
+                # second call closes the gpiozero devices (LED/Button objects).
+                if _epdconfig is not None:
+                    _epdconfig.module_exit(cleanup=True)
                     logger.debug("EPD module cleanup called")
                     
             except Exception as e:
@@ -340,7 +347,7 @@ class MockDisplay:
     def display(self, buffer):
         logger.debug("Mock: Image displayed")
     
-    def display_4Gray(self, buffer):
+    def display_4GRAY(self, buffer):
         logger.debug("Mock: 4-gray image displayed")
 
     def initialize(self):

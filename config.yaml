@@ -72,7 +72,7 @@ nlp:
 # Database Configuration (Advanced)
 database_advanced:
   timeout: 30.0  # Connection timeout in seconds
-  wal_mode: true  # Enable WAL mode for better concurrency
+  wal_mode: "WAL"  # Enable WAL journal mode for better concurrency
   cache_size: 1000  # SQLite cache size
   synchronous_mode: "NORMAL"  # NORMAL, FULL, or OFF
   temp_store: "memory"  # memory or file
