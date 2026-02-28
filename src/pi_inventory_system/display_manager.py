@@ -325,26 +325,27 @@ def display_text(display, text, config_manager, font_size=24):
         # Load font
         font = _load_font(config_manager, size=font_size)
         
-        # Handle text that might be too long with word wrapping
+        # Handle text that might be too long with word wrapping, preserving newlines
         max_width = display.WIDTH - 40  # Leave margins
         text_lines = []
-        
-        # Simple text wrapping
-        words = text.split()
-        current_line = ""
-        
-        for word in words:
-            test_line = current_line + (" " if current_line else "") + word
-            bbox = draw.textbbox((0, 0), test_line, font=font)
-            if bbox[2] - bbox[0] <= max_width:
-                current_line = test_line
-            else:
-                if current_line:
-                    text_lines.append(current_line)
-                current_line = word
-        
-        if current_line:
-            text_lines.append(current_line)
+
+        for paragraph in text.split("\n"):
+            words = paragraph.split()
+            if not words:
+                text_lines.append("")
+                continue
+            current_line = ""
+            for word in words:
+                test_line = current_line + (" " if current_line else "") + word
+                bbox = draw.textbbox((0, 0), test_line, font=font)
+                if bbox[2] - bbox[0] <= max_width:
+                    current_line = test_line
+                else:
+                    if current_line:
+                        text_lines.append(current_line)
+                    current_line = word
+            if current_line:
+                text_lines.append(current_line)
         
         # Calculate position for centered multi-line text
         line_height = font.size + 8

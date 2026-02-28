@@ -4,8 +4,7 @@ import time
 import signal
 import threading
 import traceback
-from typing import Optional, Tuple
-from datetime import datetime, timedelta
+from typing import Optional
 
 # Import configuration first to get log level
 from pi_inventory_system.config_manager import get_default_config_manager
@@ -31,7 +30,7 @@ class FridgePinventoryApp:
         """
         # Initialize configuration and database managers
         self.config_manager = get_default_config_manager()
-        self.db_manager = create_database_manager(db_path)
+        self.db_manager = create_database_manager(self.config_manager, db_path=db_path)
         
         # Initialize logging
         self._setup_logging()
@@ -104,25 +103,6 @@ class FridgePinventoryApp:
         
         self.logger.info("FridgePinventory initialization complete")
         return True
-    
-    def _run_diagnostics(self) -> Tuple[bool, bool, bool, object]:
-        """Run startup diagnostics and log results.
-        
-        Returns:
-            Tuple of (display_ok, motion_sensor_ok, audio_ok, display_instance)
-        """
-        display_ok, motion_sensor_ok, audio_ok, display_instance = run_startup_diagnostics()
-        
-        if not display_ok:
-            self.logger.error("Display initialization failed. Some features may not work.")
-        
-        if not motion_sensor_ok:
-            self.logger.error("Motion sensor initialization failed. Some features may not work.")
-            
-        if not audio_ok:
-            self.logger.error("Audio initialization failed. Some features may not work.")
-        
-        return display_ok, motion_sensor_ok, audio_ok, display_instance
     
     def _signal_handler(self, signum, frame):
         """Handle shutdown signals gracefully."""

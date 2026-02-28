@@ -42,6 +42,7 @@ def test_process_command_failed_execution(controller):
     """Test processing a command that fails to execute."""
     item = InventoryItem(item_name="chicken", quantity=1)
     controller.db.add_item.return_value = False  # Simulate failure
+    controller._db_manager.get_current_quantity.return_value = 0  # Ensure limit guard doesn't fire
     with patch('pi_inventory_system.inventory_controller.interpret_command',
               return_value=("add", item)):
         success, feedback = controller.process_command("add chicken")

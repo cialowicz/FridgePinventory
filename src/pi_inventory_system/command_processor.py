@@ -5,7 +5,6 @@ import logging
 from typing import Tuple, Optional, Dict, List
 from .item_normalizer import normalize_item_name
 from .inventory_item import InventoryItem
-from .config_manager import config
 from .exceptions import CommandProcessingError
 
 # Safe import of word2number
@@ -265,5 +264,3 @@ def interpret_command(command_text: str, config_manager) -> Tuple[Optional[str],
     except Exception as e:
         logging.error(f"Error extracting quantity and item: {e}")
         return command_type, None
-    
-    return command_type, None

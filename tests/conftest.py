@@ -60,7 +60,7 @@ def mock_config():
     }
     mock_config.get_database_advanced_config.return_value = {
         'timeout': 30.0,
-        'wal_mode': True,
+        'wal_mode': 'WAL',
         'cache_size': 1000,
         'synchronous_mode': 'NORMAL',
         'temp_store': 'memory'

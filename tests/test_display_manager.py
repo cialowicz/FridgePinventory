@@ -46,8 +46,7 @@ def test_display_inventory(mock_config_manager):
     mock_display.WIDTH = 800
     mock_display.HEIGHT = 480
     mock_display.display_image = MagicMock()
-    mock_db_manager = MagicMock()
-    mock_db_manager.get_inventory.return_value = [('Test Item 1', 5), ('Test Item 2', 3)]
+    inventory = [('Test Item 1', 5), ('Test Item 2', 3)]
 
     with patch('pi_inventory_system.display_manager.Image'), \
          patch('pi_inventory_system.display_manager.ImageDraw') as mock_draw, \
@@ -56,8 +55,8 @@ def test_display_inventory(mock_config_manager):
         mock_draw_instance.textbbox.return_value = (0, 0, 100, 20)
         mock_draw.Draw.return_value = mock_draw_instance
 
-        result = pi_inventory_system.display_manager.display_inventory(mock_display, mock_db_manager, mock_config_manager)
-        
+        result = pi_inventory_system.display_manager.display_inventory(mock_display, inventory, mock_config_manager)
+
         mock_display.display_image.assert_called_once()
         assert result is True
 
