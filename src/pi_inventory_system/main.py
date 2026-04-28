@@ -48,6 +48,8 @@ class FridgePinventoryApp:
         self._voice_future: Optional[Future] = None
         self._voice_started_at: Optional[float] = None
         self._voice_timeout_logged = False
+        self._retired_voice_executors = []
+        self._retired_voice_managers = []
 
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
@@ -83,6 +85,21 @@ class FridgePinventoryApp:
             self.audio_feedback.play_sound('success')
         self.logger.info("FridgePinventory initialization complete")
         return True
+
+    def _refresh_display_best_effort(self) -> None:
+        if not self.controller:
+            return
+        try:
+            self.controller.update_display_with_inventory()
+        except Exception as e:
+            self.logger.error(f"Display refresh failed: {e}")
+
+    def _motion_sensor_available(self) -> bool:
+        try:
+            return self.motion_manager.is_supported()
+        except Exception as e:
+            self.logger.error(f"Motion sensor support check failed: {e}")
+            return False
 
     def _signal_handler(self, signum, _frame):
         self.logger.info(f"Received signal {signum}, initiating shutdown...")
@@ -126,7 +143,22 @@ class FridgePinventoryApp:
             if elapsed > VOICE_TIMEOUT_SECONDS and not self._voice_timeout_logged:
                 self.logger.warning("Voice command timed out")
                 self._voice_timeout_logged = True
+                self._reset_voice_worker()
+                return False
         return True
+
+    def _reset_voice_worker(self) -> None:
+        """Retire the current voice worker after a timeout and allow future commands."""
+        if self._voice_future:
+            self._voice_future.cancel()
+        self._retired_voice_executors.append(self._voice_executor)
+        self._retired_voice_managers.append(self.voice_manager)
+        self._voice_executor.shutdown(wait=False, cancel_futures=True)
+        self.voice_manager = VoiceRecognitionManager(config_manager=self.config_manager)
+        self._voice_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="voice")
+        self._voice_future = None
+        self._voice_started_at = None
+        self._voice_timeout_logged = False
 
     def _kick_voice_command(self, display_ok: bool) -> None:
         if self._check_voice_future():
@@ -144,7 +176,7 @@ class FridgePinventoryApp:
 
         try:
             if display_ok:
-                self.controller.update_display_with_inventory()
+                self._refresh_display_best_effort()
 
             system_config = self.config_manager.get_system_config()
             loop = MotionLoop(
@@ -154,10 +186,18 @@ class FridgePinventoryApp:
             )
 
             previous_mode = loop.mode
+            motion_available = motion_ok
+            motion_retry_logged = False
             while self.running and not self.shutdown_event.is_set():
                 self._check_voice_future()
 
-                if not motion_ok:
+                if not motion_available:
+                    motion_available = self._motion_sensor_available()
+                    if motion_available and not motion_retry_logged:
+                        self.logger.warning("Motion diagnostics failed; retrying motion polling")
+                        motion_retry_logged = True
+
+                if not motion_available:
                     self.shutdown_event.wait(timeout=1.0)
                     continue
 
@@ -168,7 +208,7 @@ class FridgePinventoryApp:
                 if decision.new_motion:
                     self.logger.info("Motion detected, transitioning to active mode")
                     if display_ok:
-                        self.controller.update_display_with_inventory()
+                        self._refresh_display_best_effort()
                     self._kick_voice_command(display_ok)
 
                 if previous_mode == ACTIVE and loop.mode != ACTIVE:
@@ -188,18 +228,37 @@ class FridgePinventoryApp:
     def _cleanup(self) -> None:
         self.logger.info("Shutting down...")
         self.running = False
-        try:
-            self._voice_executor.shutdown(wait=False, cancel_futures=True)
-            self.motion_manager.cleanup()
-            self.voice_manager.cleanup()
-            self.audio_feedback.cleanup()
-            if self.display:
-                cleanup_display(self.display)
-            if hasattr(self.db_manager, 'cleanup'):
-                self.db_manager.cleanup()
-            self.logger.info("Cleanup complete")
-        except Exception as e:
-            self.logger.error(f"Error during cleanup: {e}")
+
+        cleanup_steps = [
+            ("voice executor", lambda: self._voice_executor.shutdown(wait=False, cancel_futures=True)),
+            ("retired voice executors", self._cleanup_retired_voice_executors),
+            ("motion manager", self.motion_manager.cleanup),
+            ("voice manager", self.voice_manager.cleanup),
+            ("retired voice managers", self._cleanup_retired_voice_managers),
+            ("audio feedback", self.audio_feedback.cleanup),
+        ]
+        if self.display:
+            cleanup_steps.append(("display", lambda: cleanup_display(self.display)))
+        if hasattr(self.db_manager, 'cleanup'):
+            cleanup_steps.append(("database", self.db_manager.cleanup))
+
+        for label, cleanup_fn in cleanup_steps:
+            try:
+                cleanup_fn()
+            except Exception as e:
+                self.logger.error(f"Error during {label} cleanup: {e}")
+
+        self.logger.info("Cleanup complete")
+
+    def _cleanup_retired_voice_executors(self) -> None:
+        for executor in self._retired_voice_executors:
+            executor.shutdown(wait=False, cancel_futures=True)
+        self._retired_voice_executors = []
+
+    def _cleanup_retired_voice_managers(self) -> None:
+        for manager in self._retired_voice_managers:
+            manager.cleanup()
+        self._retired_voice_managers = []
 
 
 def main():

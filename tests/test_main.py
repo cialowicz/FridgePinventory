@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from pi_inventory_system.main import FridgePinventoryApp
+from pi_inventory_system.main import VOICE_TIMEOUT_SECONDS, FridgePinventoryApp
 
 
 @pytest.fixture
@@ -100,6 +100,34 @@ def test_kick_voice_command_does_not_block_motion_loop(app_context):
     assert app._check_voice_future() is False
 
 
+def test_voice_timeout_retires_worker(app_context):
+    app, _, _, _, _, _, old_voice, _ = app_context
+    old_executor = MagicMock()
+    future = MagicMock()
+    future.done.return_value = False
+    app._voice_executor = old_executor
+    app._voice_future = future
+    app._voice_started_at = time.monotonic() - VOICE_TIMEOUT_SECONDS - 1
+
+    assert app._check_voice_future() is False
+
+    future.cancel.assert_called_once()
+    old_executor.shutdown.assert_called_once_with(wait=False, cancel_futures=True)
+    assert app._voice_future is None
+    assert old_executor in app._retired_voice_executors
+    assert old_voice in app._retired_voice_managers
+
+
+def test_refresh_display_best_effort_does_not_raise(app_context):
+    app, _, _, _, _, _, _, _ = app_context
+    app.controller = MagicMock()
+    app.controller.update_display_with_inventory.side_effect = RuntimeError("display offline")
+
+    app._refresh_display_best_effort()
+
+    app.controller.update_display_with_inventory.assert_called_once()
+
+
 def test_run_processes_motion_transition_and_cleans_up(app_context):
     app, _, _, _, _, motion, _, _ = app_context
     motion.detect_motion.return_value = True
@@ -116,3 +144,34 @@ def test_run_processes_motion_transition_and_cleans_up(app_context):
 
     app._kick_voice_command.assert_called_once_with(False)
     motion.cleanup.assert_called()
+
+
+def test_run_retries_motion_after_failed_diagnostics(app_context):
+    app, _, _, _, _, motion, _, _ = app_context
+    motion.is_supported.return_value = True
+    motion.detect_motion.return_value = True
+
+    def stop_after_voice(_display_ok):
+        app.running = False
+        app.shutdown_event.set()
+
+    app._kick_voice_command = MagicMock(side_effect=stop_after_voice)
+
+    with patch('pi_inventory_system.main.run_startup_diagnostics',
+               return_value=(False, False, False, None)):
+        app.run()
+
+    motion.is_supported.assert_called()
+    app._kick_voice_command.assert_called_once_with(False)
+
+
+def test_cleanup_continues_after_resource_failure(app_context):
+    app, _, db, _, _, motion, voice, audio = app_context
+    motion.cleanup.side_effect = RuntimeError("gpio busy")
+
+    app._cleanup()
+
+    motion.cleanup.assert_called()
+    voice.cleanup.assert_called()
+    audio.cleanup.assert_called()
+    db.cleanup.assert_called()
