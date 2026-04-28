@@ -2,6 +2,7 @@
 
 import logging
 import re
+import threading
 from typing import Optional, Tuple
 
 from .inventory_item import InventoryItem
@@ -21,6 +22,7 @@ except Exception:
 
 _nlp = None
 _nlp_load_attempted = False
+_nlp_lock = threading.Lock()
 
 UNDO_WORDS = ('undo', 'reverse', 'take back', 'cancel', 'revert')
 ADD_VERBS = ('add', 'put', 'place', 'store', 'stock', 'insert', 'got', 'bought', 'purchased')
@@ -49,22 +51,28 @@ def _ensure_nlp(config_manager):
     global _nlp, _nlp_load_attempted
     if _nlp_load_attempted:
         return _nlp
-    _nlp_load_attempted = True
 
-    if spacy is None:
-        return None
-    nlp_config = config_manager.get_nlp_config()
-    if not nlp_config.get('enable_spacy', True):
-        logging.info("spaCy disabled in configuration, using rule-based parsing")
-        return None
-    model_name = nlp_config.get('spacy_model', 'en_core_web_sm')
-    try:
-        _nlp = spacy.load(model_name)
-        logging.info(f"Loaded spaCy model: {model_name}")
-    except Exception as e:
-        logging.warning(f"spaCy model '{model_name}' unavailable, falling back: {e}")
-        _nlp = None
-    return _nlp
+    with _nlp_lock:
+        if _nlp_load_attempted:
+            return _nlp
+        # Cache unavailable/failed loads so every command does not retry the
+        # expensive import path when the model is intentionally absent.
+        _nlp_load_attempted = True
+
+        if spacy is None:
+            return None
+        nlp_config = config_manager.get_nlp_config()
+        if not nlp_config.get('enable_spacy', True):
+            logging.info("spaCy disabled in configuration, using rule-based parsing")
+            return None
+        model_name = nlp_config.get('spacy_model', 'en_core_web_sm')
+        try:
+            _nlp = spacy.load(model_name)
+            logging.info(f"Loaded spaCy model: {model_name}")
+        except Exception as e:
+            logging.warning(f"spaCy model '{model_name}' unavailable, falling back: {e}")
+            _nlp = None
+        return _nlp
 
 
 def parse_quantity(text: str, config_manager) -> Optional[int]:

@@ -28,9 +28,9 @@ audio = [
     "simpleaudio",
 ]
 hardware = [
-    "RPi.GPIO ; platform_machine == 'armv7l' or platform_machine == 'aarch64'",
-    "gpiozero ; platform_machine == 'armv7l' or platform_machine == 'aarch64'",
-    "lgpio ; platform_machine == 'armv7l' or platform_machine == 'aarch64'",
+    "RPi.GPIO ; platform_machine == 'armv6l' or platform_machine == 'armv7l' or platform_machine == 'aarch64'",
+    "gpiozero ; platform_machine == 'armv6l' or platform_machine == 'armv7l' or platform_machine == 'aarch64'",
+    "lgpio ; platform_machine == 'armv6l' or platform_machine == 'armv7l' or platform_machine == 'aarch64'",
 ]
 test = [
     "pytest",

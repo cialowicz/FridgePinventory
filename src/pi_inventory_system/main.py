@@ -66,7 +66,11 @@ class FridgePinventoryApp:
 
     def initialize(self) -> bool:
         self.logger.info("Starting FridgePinventory initialization...")
-        display_ok, motion_ok, audio_ok, display_instance = run_startup_diagnostics(self.config_manager)
+        display_ok, motion_ok, audio_ok, display_instance = run_startup_diagnostics(
+            self.config_manager,
+            motion_manager=self.motion_manager,
+            audio_manager=self.audio_feedback,
+        )
         self.hardware_status = (display_ok, motion_ok, audio_ok)
         self.display = display_instance
         if not self.display and display_ok:

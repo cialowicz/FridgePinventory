@@ -5,7 +5,7 @@ import subprocess
 import threading
 from typing import Optional
 
-from .platform_info import MockGPIO, is_raspberry_pi, is_raspberry_pi_5
+from . import platform_info
 
 
 class MotionSensorManager:
@@ -25,8 +25,8 @@ class MotionSensorManager:
         self._gpiozero_sensor = None
         self._last_error: Optional[str] = None
         self._pin = pin or self._get_configured_pin()
-        self._is_pi5 = self._check_raspberry_pi_5()
-        self._is_pi = self._check_raspberry_pi()
+        self._is_pi5 = platform_info.is_raspberry_pi_5()
+        self._is_pi = platform_info.is_raspberry_pi()
         self.logger = logging.getLogger(__name__)
         
         # Initialize GPIO if on Raspberry Pi
@@ -53,12 +53,6 @@ class MotionSensorManager:
             motion = {}
         return motion
     
-    def _check_raspberry_pi(self) -> bool:
-        return is_raspberry_pi()
-
-    def _check_raspberry_pi_5(self) -> bool:
-        return is_raspberry_pi_5()
-
     def _init_gpio_module(self):
         """Initialize GPIO module for non-Pi5 systems."""
         try:
@@ -66,7 +60,7 @@ class MotionSensorManager:
             self._gpio = GPIO
         except ImportError:
             self.logger.warning("RPi.GPIO not available, using mock")
-            self._gpio = MockGPIO()
+            self._gpio = platform_info.MockGPIO()
     
     def is_supported(self) -> bool:
         """Check if motion sensor functionality is available and enabled."""
@@ -245,26 +239,3 @@ class MotionSensorManager:
                     self.logger.info("gpiozero motion sensor cleanup completed")
                 except Exception as e:
                     self._set_error(f"Error during gpiozero cleanup: {e}")
-
-# Create a default instance for backward compatibility
-_default_manager = None
-
-def get_default_motion_sensor_manager():
-    """Get the default motion sensor manager instance."""
-    global _default_manager
-    if _default_manager is None:
-        _default_manager = MotionSensorManager()
-    return _default_manager
-
-# Backward compatibility functions
-def detect_motion() -> bool:
-    """Detect motion using the default manager."""
-    return get_default_motion_sensor_manager().detect_motion()
-
-def cleanup():
-    """Clean up the default manager."""
-    get_default_motion_sensor_manager().cleanup()
-
-def is_motion_sensor_supported() -> bool:
-    """Check if motion sensor is supported."""
-    return get_default_motion_sensor_manager().is_supported()

@@ -14,8 +14,8 @@ def mock_config_manager():
     }
     return config
 
-@patch('pi_inventory_system.motion_sensor_manager.MotionSensorManager._check_raspberry_pi_5', return_value=False)
-@patch('pi_inventory_system.motion_sensor_manager.MotionSensorManager._check_raspberry_pi', return_value=True)
+@patch('pi_inventory_system.platform_info.is_raspberry_pi_5', return_value=False)
+@patch('pi_inventory_system.platform_info.is_raspberry_pi', return_value=True)
 def test_detect_motion_on_pi(mock_check_pi, mock_check_pi5, mock_config_manager):
     """Test motion detection on a non-Pi5 Raspberry Pi."""
     # Create mock GPIO module that will be returned by the import
@@ -46,15 +46,15 @@ def test_detect_motion_on_pi(mock_check_pi, mock_check_pi5, mock_config_manager)
         mock_gpio.setup.assert_not_called()
         assert mock_gpio.input.call_count == 1
 
-@patch('pi_inventory_system.motion_sensor_manager.MotionSensorManager._check_raspberry_pi', return_value=False)
+@patch('pi_inventory_system.platform_info.is_raspberry_pi', return_value=False)
 def test_motion_sensor_unsupported_on_non_pi(mock_check_pi, mock_config_manager):
     """Test that motion sensor is not supported on non-Pi systems."""
     manager = MotionSensorManager(config_manager=mock_config_manager)
     assert manager.is_supported() is False
     assert manager.detect_motion() is False
 
-@patch('pi_inventory_system.motion_sensor_manager.MotionSensorManager._check_raspberry_pi_5', return_value=True)
-@patch('pi_inventory_system.motion_sensor_manager.MotionSensorManager._check_raspberry_pi', return_value=True)
+@patch('pi_inventory_system.platform_info.is_raspberry_pi_5', return_value=True)
+@patch('pi_inventory_system.platform_info.is_raspberry_pi', return_value=True)
 @patch('pi_inventory_system.motion_sensor_manager.subprocess.run')
 def test_detect_motion_on_pi5(mock_subprocess, mock_check_pi, mock_check_pi5, mock_config_manager):
     """Test motion detection on Raspberry Pi 5 using pinctrl."""

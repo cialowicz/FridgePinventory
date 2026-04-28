@@ -5,7 +5,7 @@ from .command_processor import interpret_command
 from .display_manager import display_inventory
 from .item_normalizer import normalize_item_name
 from .inventory_item import InventoryItem
-from .exceptions import CommandProcessingError, DatabaseError, InventoryError
+from .exceptions import CommandProcessingError, DatabaseError, DisplayError, InventoryError
 
 
 class InventoryController:
@@ -57,9 +57,11 @@ class InventoryController:
             if not command_type:
                 return False, "Command not recognized. Please try again with add, remove, set, or undo."
             
-            # Validate item if present
+            if command_type != "undo" and item is None:
+                return False, "Could not identify a valid item and quantity. Please try again."
+
             if item and command_type != "undo":
-                if not self._validate_item(item):
+                if not self._validate_item(item, command_type):
                     return False, "Invalid item details. Please check the item name and quantity."
             
             success, new_quantity, status_item_name = self._execute_command(command_type, item)
@@ -100,7 +102,8 @@ class InventoryController:
                 logging.debug("Inventory unchanged since last render; skipping refresh")
                 return
 
-            display_inventory(self.display, display_list, self.config_manager)
+            if not display_inventory(self.display, display_list, self.config_manager):
+                raise DisplayError("Display inventory render failed")
             self._last_rendered_inventory = display_list
             logging.info(f"Updated display with {len(display_list)} items.")
         except Exception as e:
@@ -130,7 +133,7 @@ class InventoryController:
 
         return "Command executed successfully."
     
-    def _validate_item(self, item: InventoryItem) -> bool:
+    def _validate_item(self, item: InventoryItem, command_type: str) -> bool:
         """Validate inventory item before processing.
         
         Args:
@@ -158,6 +161,10 @@ class InventoryController:
         
         if item.quantity < 0:
             logging.warning(f"Negative quantity: {item.quantity}")
+            return False
+
+        if command_type in ("add", "remove") and item.quantity == 0:
+            logging.warning(f"Zero quantity is not valid for {command_type}")
             return False
         
         if item.quantity > 10000:

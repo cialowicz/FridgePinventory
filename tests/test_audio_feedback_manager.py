@@ -42,6 +42,19 @@ def test_play_sound_returns_false_when_no_backend(cfg):
         assert manager.play_sound('success') is False
 
 
+def test_speak_returns_false_when_tts_unavailable(cfg):
+    with patch('pi_inventory_system.audio_feedback_manager.PYTTSX3_AVAILABLE', False):
+        manager = AudioFeedbackManager(config_manager=cfg)
+        assert manager.speak("hello") is False
+
+
+def test_speak_returns_false_when_tts_initialization_fails(cfg):
+    with patch('pi_inventory_system.audio_feedback_manager.PYTTSX3_AVAILABLE', True), \
+         patch.object(AudioFeedbackManager, '_initialize_tts', return_value=False):
+        manager = AudioFeedbackManager(config_manager=cfg)
+        assert manager.speak("hello") is False
+
+
 def test_circuit_breaker_disables_after_repeated_failures(cfg, tmp_path):
     sound = tmp_path / "s.wav"
     sound.write_bytes(b"")

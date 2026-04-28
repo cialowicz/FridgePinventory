@@ -1,4 +1,4 @@
-# Simplified database manager for single-threaded Pi application
+# SQLite database manager for the Pi application.
 
 import logging
 import sqlite3
@@ -25,6 +25,8 @@ class DatabaseManager:
         from .config_manager import get_default_config_manager
         self._config_manager = config_manager or get_default_config_manager()
         self._db_path = db_path or self._config_manager.get('database', 'path')
+        # check_same_thread=False lets the voice worker use the same connection;
+        # every connection access must remain guarded by this re-entrant lock.
         self._lock = threading.RLock()
         self._connection: Optional[sqlite3.Connection] = None
         self._initialized = False

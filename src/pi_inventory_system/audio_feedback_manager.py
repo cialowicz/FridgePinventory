@@ -173,13 +173,12 @@ class AudioFeedbackManager:
             return False
         
         if not PYTTSX3_AVAILABLE or self._tts_disabled:
-            # Fallback to print
-            print(f"[TTS]: {message}")
-            return True
+            self.logger.warning("TTS unavailable; message was not spoken")
+            return False
         
         if not self._initialize_tts():
-            print(f"[TTS]: {message}")
-            return True
+            self.logger.warning("TTS initialization failed; message was not spoken")
+            return False
         
         try:
             self._tts_queue.put(message, timeout=1.0)

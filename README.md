@@ -185,7 +185,7 @@ python -m pytest -m "not skip"
   - The system tracks which migrations have been run to prevent duplicates
 
 ## Fallback Behavior
-- If text-to-speech is unavailable, falls back to console output
+- If text-to-speech is unavailable, logs the failure and continues without spoken feedback
 - If audio playback is unavailable, logs the failure and continues without a sound
 - If running on non-Raspberry Pi hardware, simulates hardware interactions for testing
 

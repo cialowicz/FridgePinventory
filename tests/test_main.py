@@ -42,6 +42,20 @@ def test_app_uses_provided_config_path(app_context):
     create_db.assert_called_once_with(cfg, db_path="custom.db")
 
 
+def test_initialize_reuses_runtime_managers_for_diagnostics(app_context):
+    app, cfg, _, _, _, motion, _, audio = app_context
+
+    with patch('pi_inventory_system.main.run_startup_diagnostics',
+               return_value=(False, True, False, None)) as diagnostics:
+        assert app.initialize() is True
+
+    diagnostics.assert_called_once_with(
+        cfg,
+        motion_manager=motion,
+        audio_manager=audio,
+    )
+
+
 def test_handle_voice_command_outputs_confirmation(app_context):
     app, _, _, _, _, _, voice, audio = app_context
     app.running = True
@@ -84,3 +98,21 @@ def test_kick_voice_command_does_not_block_motion_loop(app_context):
     assert app._check_voice_future() is True
     app._voice_future.result(timeout=1)
     assert app._check_voice_future() is False
+
+
+def test_run_processes_motion_transition_and_cleans_up(app_context):
+    app, _, _, _, _, motion, _, _ = app_context
+    motion.detect_motion.return_value = True
+
+    def stop_after_voice(_display_ok):
+        app.running = False
+        app.shutdown_event.set()
+
+    app._kick_voice_command = MagicMock(side_effect=stop_after_voice)
+
+    with patch('pi_inventory_system.main.run_startup_diagnostics',
+               return_value=(False, True, False, None)):
+        app.run()
+
+    app._kick_voice_command.assert_called_once_with(False)
+    motion.cleanup.assert_called()

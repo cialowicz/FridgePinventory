@@ -89,6 +89,25 @@ def test_diagnostics_platform_not_supported(mock_audio, cfg):
         assert (display_ok, motion_ok, audio_ok) == (False, False, True)
 
 
+def test_diagnostics_does_not_cleanup_injected_managers(cfg):
+    motion = MagicMock()
+    motion.is_supported.return_value = False
+    audio = MagicMock()
+    audio.play_sound.return_value = True
+
+    with patch('pi_inventory_system.diagnostics.is_display_supported', return_value=False):
+        _, motion_ok, audio_ok, _ = run_startup_diagnostics(
+            cfg,
+            motion_manager=motion,
+            audio_manager=audio,
+        )
+
+    assert motion_ok is False
+    assert audio_ok is True
+    motion.cleanup.assert_not_called()
+    audio.cleanup.assert_not_called()
+
+
 def test_diagnostics_audio_failure(mock_display_init, mock_motion_manager, mock_supported, mock_audio, cfg):
     mock_audio.play_sound.return_value = False
     with patch('pi_inventory_system.diagnostics.display_text', return_value=True):

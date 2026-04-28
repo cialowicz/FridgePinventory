@@ -2,6 +2,7 @@
 
 import logging
 import threading
+import time
 from typing import Optional
 
 import speech_recognition as sr
@@ -36,7 +37,7 @@ class VoiceRecognitionManager:
         # State tracking
         self._initialization_failed = False
         self._retry_count = 0
-        self._nlp_model = None
+        self._last_initialization_failure_at: Optional[float] = None
     
     def _initialize_recognizer(self) -> bool:
         """Initialize the speech recognizer."""
@@ -133,6 +134,8 @@ class VoiceRecognitionManager:
             
             self.logger.info("Microphone initialized and calibrated")
             self._retry_count = 0  # Reset on success
+            self._initialization_failed = False
+            self._last_initialization_failure_at = None
             return True
             
         except OSError as e:
@@ -148,17 +151,49 @@ class VoiceRecognitionManager:
         """Handle initialization failure with retry logic."""
         self._microphone = None
         self._retry_count += 1
+        self._last_initialization_failure_at = time.monotonic()
         
         if self._retry_count >= self.MAX_RETRIES:
             self._initialization_failed = True
-            self.logger.error(f"Audio initialization failed after {self.MAX_RETRIES} attempts")
+            cooldown = self._initialization_retry_cooldown()
+            self.logger.error(
+                f"Audio initialization failed after {self.MAX_RETRIES} attempts; "
+                f"will retry after {cooldown:.0f}s"
+            )
+
+    def _initialization_retry_cooldown(self) -> float:
+        audio_config = self._config.get_audio_config()
+        voice_config = audio_config.get('voice_recognition', {})
+        cooldown = voice_config.get('initialization_retry_cooldown', 30.0)
+        if not isinstance(cooldown, (int, float)) or cooldown < 0:
+            return 30.0
+        return float(cooldown)
+
+    def _retry_after_cooldown(self) -> bool:
+        if not self._initialization_failed:
+            return True
+
+        cooldown = self._initialization_retry_cooldown()
+        elapsed = (
+            time.monotonic() - self._last_initialization_failure_at
+            if self._last_initialization_failure_at is not None
+            else cooldown
+        )
+        if elapsed < cooldown:
+            self.logger.debug(
+                f"Audio initialization paused for {cooldown - elapsed:.1f}s before retry"
+            )
+            return False
+
+        self.logger.info("Retrying audio initialization after previous failures")
+        self._initialization_failed = False
+        self._retry_count = 0
+        return True
     
     def initialize(self) -> bool:
         """Initialize all audio components."""
         with self._lock:
-            # Check if permanently failed
-            if self._initialization_failed:
-                self.logger.debug("Audio initialization previously failed permanently")
+            if not self._retry_after_cooldown():
                 return False
             
             # Initialize recognizer
@@ -180,11 +215,6 @@ class VoiceRecognitionManager:
         Returns:
             Recognized text or None if failed.
         """
-        # Check if permanently failed
-        if self._initialization_failed:
-            self.logger.debug("Audio initialization permanently failed")
-            return None
-        
         # Initialize if needed
         if not self.initialize():
             self.logger.error("Failed to initialize audio components")

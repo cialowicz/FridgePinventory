@@ -9,7 +9,11 @@ from .display_manager import display_text, initialize_display, is_display_suppor
 from .motion_sensor_manager import MotionSensorManager
 
 
-def run_startup_diagnostics(config_manager) -> Tuple[bool, bool, bool, object]:
+def run_startup_diagnostics(
+    config_manager,
+    motion_manager=None,
+    audio_manager=None,
+) -> Tuple[bool, bool, bool, object]:
     """Run startup diagnostics.
 
     Returns: (display_ok, motion_sensor_ok, audio_ok, display_instance)
@@ -34,7 +38,9 @@ def run_startup_diagnostics(config_manager) -> Tuple[bool, bool, bool, object]:
 
     time.sleep(2)
 
-    motion_manager = MotionSensorManager(config_manager=config_manager)
+    owns_motion_manager = motion_manager is None
+    if motion_manager is None:
+        motion_manager = MotionSensorManager(config_manager=config_manager)
     if motion_manager.is_supported():
         try:
             readings = [motion_manager.detect_motion() for _ in range(3)]
@@ -47,11 +53,14 @@ def run_startup_diagnostics(config_manager) -> Tuple[bool, bool, bool, object]:
         except Exception as e:
             logging.error(f"Motion sensor error: {e}")
         finally:
-            motion_manager.cleanup()
+            if owns_motion_manager:
+                motion_manager.cleanup()
     else:
         logging.warning("Motion sensor not supported on this platform")
 
-    audio_manager = AudioFeedbackManager(config_manager=config_manager)
+    owns_audio_manager = audio_manager is None
+    if audio_manager is None:
+        audio_manager = AudioFeedbackManager(config_manager=config_manager)
     try:
         if audio_manager.play_sound('success'):
             logging.info("Audio feedback sound played successfully.")
@@ -61,7 +70,8 @@ def run_startup_diagnostics(config_manager) -> Tuple[bool, bool, bool, object]:
     except Exception as e:
         logging.error(f"Audio diagnostics failed: {e}")
     finally:
-        audio_manager.cleanup()
+        if owns_audio_manager:
+            audio_manager.cleanup()
 
     if display_ok and display:
         status_text = (

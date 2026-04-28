@@ -11,7 +11,6 @@ import sys
 import subprocess
 
 # --- Test Configuration ---
-MOTION_SENSOR_PIN = 4
 MIC_TEST_DURATION = 3  # seconds
 DISPLAY_WIDTH = 800
 DISPLAY_HEIGHT = 480
@@ -433,68 +432,33 @@ def test_microphone(lines):
         print_status(f"Microphone test failed: {e}", False)
         lines.append("Mic: FAIL")
 
-def _is_raspberry_pi_5():
-    try:
-        with open('/proc/device-tree/model', 'r') as f:
-            return 'raspberry pi 5' in f.read().lower()
-    except FileNotFoundError:
-        return False
-
-def _read_pinctrl(pin: int) -> bool:
-    try:
-        result = subprocess.run(
-            ['sudo', 'pinctrl', 'get', str(pin)], 
-            capture_output=True, 
-            text=True, 
-            check=True,
-            timeout=2
-        )
-        print(f"DEBUG: pinctrl stdout: {result.stdout.strip()}")
-        return 'level=1' in result.stdout
-    except subprocess.CalledProcessError as e:
-        print(f"DEBUG: pinctrl command failed with exit code {e.returncode}.")
-        print(f"DEBUG: pinctrl stderr: {e.stderr.strip()}")
-        return False
-    except Exception as e:
-        print(f"DEBUG: An unexpected error occurred while running pinctrl: {e}")
-        return False
-
 def test_motion_sensor(lines):
     print_header("Motion Sensor Test")
     try:
-        print("Please wave your hand in front of the sensor for 5 seconds...")
-        motion_detected = False
-        if _is_raspberry_pi_5():
-            print("INFO: Using Pi 5 'pinctrl' method.")
-            try:
-                # On Pi 5, we must explicitly set the pin as an input with pull-down
-                print(f"INFO: Configuring GPIO {MOTION_SENSOR_PIN} as input with pull-down.")
-                subprocess.run(['sudo', 'pinctrl', 'set', str(MOTION_SENSOR_PIN), 'ip', 'pd'], check=True)
-            except Exception as e:
-                print(f"ERROR: Failed to configure GPIO pin: {e}")
+        from pi_inventory_system.config_manager import create_config_manager
+        from pi_inventory_system.motion_sensor_manager import MotionSensorManager
 
+        print("Please wave your hand in front of the sensor for 5 seconds...")
+        manager = MotionSensorManager(config_manager=create_config_manager())
+        if not manager.is_supported():
+            print_status("Motion sensor supported on this platform", False)
+            lines.append("Motion: UNSUPPORTED")
+            return
+
+        motion_detected = False
+        try:
             for _ in range(10):
-                if _read_pinctrl(MOTION_SENSOR_PIN):
+                if manager.detect_motion():
                     motion_detected = True
                     break
                 time.sleep(0.5)
                 print(".", end="", flush=True)
-        else:
-            print("DEBUG: Using RPi.GPIO method for older Pi.")
-            import RPi.GPIO as GPIO
-            try:
-                GPIO.setmode(GPIO.BCM)
-                GPIO.setup(MOTION_SENSOR_PIN, GPIO.IN)
-                for _ in range(10):
-                    if GPIO.input(MOTION_SENSOR_PIN):
-                        motion_detected = True
-                        break
-                    time.sleep(0.5)
-                    print(".", end="", flush=True)
-            finally:
-                GPIO.cleanup()
+        finally:
+            manager.cleanup()
 
         print()
+        if not manager.is_healthy():
+            print(f"ERROR: Motion sensor health check failed: {manager.last_error}")
         print_status("Motion sensor check", motion_detected)
         lines.append(f"Motion: {'OK' if motion_detected else 'FAIL'}")
     except Exception as e:

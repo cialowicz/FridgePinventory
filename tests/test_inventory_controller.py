@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import Mock, patch, MagicMock
 from pi_inventory_system.config_manager import create_config_manager
 from pi_inventory_system.database_manager import create_database_manager
+from pi_inventory_system.exceptions import DisplayError
 from pi_inventory_system.inventory_controller import InventoryController
 from pi_inventory_system.inventory_item import InventoryItem
 
@@ -98,6 +99,25 @@ def test_process_command_remove_missing_item(controller):
         controller.db.remove_item.assert_not_called()
 
 
+def test_process_command_missing_item_has_specific_feedback(controller):
+    with patch('pi_inventory_system.inventory_controller.interpret_command',
+              return_value=("add", None)):
+        success, feedback = controller.process_command("add")
+        assert not success
+        assert feedback == "Could not identify a valid item and quantity. Please try again."
+
+
+def test_process_command_rejects_zero_add(controller):
+    item = InventoryItem(item_name="chicken", quantity=0)
+
+    with patch('pi_inventory_system.inventory_controller.interpret_command',
+              return_value=("add", item)):
+        success, feedback = controller.process_command("add 0 chicken")
+        assert not success
+        assert feedback == "Invalid item details. Please check the item name and quantity."
+        controller.db.add_item.assert_not_called()
+
+
 def test_process_command_success_when_display_refresh_fails(controller):
     """A display error after the DB mutation should not report command failure."""
     item = InventoryItem(item_name="chicken", quantity=1)
@@ -111,6 +131,14 @@ def test_process_command_success_when_display_refresh_fails(controller):
         success, feedback = controller.process_command("add chicken")
         assert success
         assert feedback == "chicken now has 1 in inventory."
+
+
+def test_update_display_raises_when_render_returns_false(controller):
+    controller.db.get_inventory.return_value = [("steak", 1)]
+    with patch('pi_inventory_system.inventory_controller.display_inventory', return_value=False):
+        with pytest.raises(DisplayError):
+            controller.update_display_with_inventory()
+    assert controller._last_rendered_inventory is None
 
 
 def test_process_command_from_executor_thread_updates_database(tmp_path):
