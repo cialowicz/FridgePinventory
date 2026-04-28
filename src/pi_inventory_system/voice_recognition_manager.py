@@ -1,13 +1,13 @@
 # Voice recognition manager with proper encapsulation
 
 import logging
-import traceback
 import threading
 from typing import Optional
-import speech_recognition as sr
-from .config_manager import config
 
-# Optional PyAudio dependency
+import speech_recognition as sr
+
+from .config_manager import get_default_config_manager
+
 try:
     import pyaudio
 except Exception:
@@ -24,7 +24,7 @@ class VoiceRecognitionManager:
         Args:
             config_manager: Configuration manager instance.
         """
-        self._config = config_manager or config
+        self._config = config_manager or get_default_config_manager()
         self._lock = threading.Lock()
         self.logger = logging.getLogger(__name__)
         

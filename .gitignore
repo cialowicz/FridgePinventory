@@ -25,6 +25,7 @@ src/pi_inventory_system.egg-info/*
 # Virtual Environment
 .env
 .venv
+.venv2
 env/
 venv/
 ENV/

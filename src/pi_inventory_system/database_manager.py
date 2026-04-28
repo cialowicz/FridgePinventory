@@ -316,15 +316,16 @@ def create_database_manager(config_manager: Any, db_path: Optional[str] = None) 
     """Create a new database manager instance."""
     return DatabaseManager(db_path=db_path, config_manager=config_manager)
 
+
 _default_db_manager: Optional[DatabaseManager] = None
+_default_db_lock = threading.Lock()
+
 
 def get_default_db_manager() -> DatabaseManager:
-    """Get the default database manager instance."""
+    """Lazily create and return a process-wide default DatabaseManager."""
     global _default_db_manager
-    if _default_db_manager is None:
-        from .config_manager import get_default_config_manager
-        config_manager = get_default_config_manager()
-        _default_db_manager = create_database_manager(config_manager)
-    return _default_db_manager
-
-db_manager = get_default_db_manager()
+    with _default_db_lock:
+        if _default_db_manager is None:
+            from .config_manager import get_default_config_manager
+            _default_db_manager = create_database_manager(get_default_config_manager())
+        return _default_db_manager

@@ -1,10 +1,11 @@
 # Motion sensor manager with proper encapsulation and no global state
 
-import os
 import logging
 import subprocess
 import threading
 from typing import Optional
+
+from .platform_info import MockGPIO, is_raspberry_pi, is_raspberry_pi_5
 
 
 class MotionSensorManager:
@@ -51,27 +52,11 @@ class MotionSensorManager:
         return motion
     
     def _check_raspberry_pi(self) -> bool:
-        """Check if we're running on a Raspberry Pi."""
-        if os.path.exists('/proc/device-tree/model'):
-            try:
-                with open('/proc/device-tree/model', 'r') as f:
-                    model = f.read().lower()
-                    return 'raspberry pi' in model
-            except Exception:
-                pass
-        return False
-    
+        return is_raspberry_pi()
+
     def _check_raspberry_pi_5(self) -> bool:
-        """Check if we're running on a Raspberry Pi 5."""
-        if os.path.exists('/proc/device-tree/model'):
-            try:
-                with open('/proc/device-tree/model', 'r') as f:
-                    model = f.read().lower()
-                    return 'raspberry pi 5' in model
-            except Exception:
-                pass
-        return False
-    
+        return is_raspberry_pi_5()
+
     def _init_gpio_module(self):
         """Initialize GPIO module for non-Pi5 systems."""
         try:
@@ -79,32 +64,7 @@ class MotionSensorManager:
             self._gpio = GPIO
         except ImportError:
             self.logger.warning("RPi.GPIO not available, using mock")
-            self._gpio = self._create_mock_gpio()
-    
-    def _create_mock_gpio(self):
-        """Create a mock GPIO for testing."""
-        class MockGPIO:
-            BCM = 'BCM'
-            IN = 'IN'
-            OUT = 'OUT'
-            
-            @staticmethod
-            def setmode(mode):
-                pass
-            
-            @staticmethod
-            def setup(pin, mode):
-                pass
-            
-            @staticmethod
-            def input(pin):
-                return False
-            
-            @staticmethod
-            def cleanup():
-                pass
-        
-        return MockGPIO()
+            self._gpio = MockGPIO()
     
     def is_supported(self) -> bool:
         """Check if motion sensor functionality is available and enabled."""

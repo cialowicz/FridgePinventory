@@ -1,10 +1,12 @@
 # Configuration management module
 
-import os
-import yaml
 import logging
-from typing import Any, Dict, Optional
+import os
+import threading
 from pathlib import Path
+from typing import Any, Dict, Optional
+
+import yaml
 
 logger = logging.getLogger(__name__)
 
@@ -241,16 +243,14 @@ def create_config_manager(config_path: Optional[str] = None) -> ConfigManager:
     return ConfigManager(config_path)
 
 
-# Default configuration manager instance for backward compatibility
-# This will be replaced with dependency injection in the future
-_default_config_manager = None
+_default_config_manager: Optional[ConfigManager] = None
+_default_config_lock = threading.Lock()
+
 
 def get_default_config_manager() -> ConfigManager:
-    """Get the default configuration manager instance."""
+    """Lazily create and return a process-wide default ConfigManager."""
     global _default_config_manager
-    if _default_config_manager is None:
-        _default_config_manager = create_config_manager()
-    return _default_config_manager
-
-# Backward compatibility alias
-config = get_default_config_manager()
+    with _default_config_lock:
+        if _default_config_manager is None:
+            _default_config_manager = create_config_manager()
+        return _default_config_manager

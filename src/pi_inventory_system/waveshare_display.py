@@ -19,20 +19,10 @@ _epdconfig = None  # captured alongside the driver so cleanup can call module_ex
 def _setup_waveshare_lib():
     """Setup the Waveshare library path and import the module."""
     global WAVESHARE_AVAILABLE, epd_module, epd_driver_name, _epdconfig
-    
-    try:
-        # Check if we're on a Raspberry Pi
-        if not os.path.exists('/proc/device-tree/model'):
-            logger.info("Not running on Raspberry Pi, using mock display")
-            return False
-            
-        with open('/proc/device-tree/model', 'r') as f:
-            if 'raspberry pi' not in f.read().lower():
-                logger.info("Not running on a Raspberry Pi, using mock display.")
-                WAVESHARE_AVAILABLE = False
-                return
-    except FileNotFoundError:
-        logger.info("Not running on a Raspberry Pi (or unable to detect), using mock display.")
+
+    from .platform_info import is_raspberry_pi
+    if not is_raspberry_pi():
+        logger.info("Not running on a Raspberry Pi, using mock display.")
         WAVESHARE_AVAILABLE = False
         return
 

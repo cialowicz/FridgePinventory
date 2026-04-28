@@ -17,22 +17,13 @@ from PIL import Image, ImageDraw, ImageFont
 from .waveshare_display import WaveshareDisplay
 
 def _is_raspberry_pi(config_manager):
-    """Check if we're running on a Raspberry Pi."""
-    # Get platform configuration
-    platform_config = config_manager.get_platform_config()
-    model_file = platform_config.get('raspberry_pi_model_file', '/proc/device-tree/model')
-    required_string = platform_config.get('required_pi_string', 'raspberry pi')
-    
-    # Check for Raspberry Pi specific files
-    if os.path.exists(model_file):
-        try:
-            with open(model_file, 'r') as f:
-                model = f.read().lower()
-                return required_string in model
-        except (IOError, OSError) as e:
-            logger.warning(f"Could not read platform model file {model_file}: {e}")
-            return False
-    return False
+    """Check if we're running on a Raspberry Pi (config-driven for tests)."""
+    from .platform_info import is_raspberry_pi
+    platform_config = config_manager.get_platform_config() or {}
+    return is_raspberry_pi(
+        model_file=platform_config.get('raspberry_pi_model_file', '/proc/device-tree/model'),
+        required_string=platform_config.get('required_pi_string', 'raspberry pi'),
+    )
 
 def is_display_supported(config_manager) -> bool:
     """Checks if the display is supported on the current platform."""
