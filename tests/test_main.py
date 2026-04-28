@@ -161,6 +161,45 @@ def test_handle_voice_command_uses_warning_chime_on_removal(app_context):
     audio.output_confirmation.assert_not_called()
 
 
+def test_cleanup_waits_for_voice_worker_before_closing_db(app_context):
+    """_cleanup must drain the voice worker before tearing down the DB."""
+    app, _, db, _, _, motion, voice, audio = app_context
+
+    voice_done = []
+
+    fake_future = MagicMock()
+
+    def slow_result(timeout=None):
+        # Mimic a worker finishing just inside the cleanup timeout.
+        voice_done.append(("future_drained", time.monotonic()))
+        return None
+
+    fake_future.result.side_effect = slow_result
+    app._voice_future = fake_future
+
+    # Track ordering: voice future must drain before db.cleanup runs.
+    db.cleanup.side_effect = lambda: voice_done.append(("db_closed", time.monotonic()))
+
+    app._cleanup()
+
+    # Both events fired and in the right order.
+    assert [e[0] for e in voice_done] == ["future_drained", "db_closed"]
+
+
+def test_cleanup_handles_voice_worker_timeout(app_context):
+    """If the voice worker is still hung at cleanup time, log and proceed
+    rather than blocking shutdown forever."""
+    app, _, db, _, _, _, _, _ = app_context
+
+    fake_future = MagicMock()
+    fake_future.result.side_effect = TimeoutError("worker still running")
+    app._voice_future = fake_future
+
+    app._cleanup()
+
+    db.cleanup.assert_called_once()
+
+
 def test_initialize_resets_audio_circuit_breakers(app_context):
     app, _, _, _, _, _, _, audio = app_context
     with patch('pi_inventory_system.main.run_startup_diagnostics',

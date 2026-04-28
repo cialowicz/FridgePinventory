@@ -1,11 +1,13 @@
 import logging
-from typing import List, Tuple, Optional
-from .database_manager import get_default_db_manager
+import threading
+from typing import List, Optional, Tuple
+
 from .command_processor import interpret_command
+from .database_manager import get_default_db_manager
 from .display_manager import display_inventory
-from .item_normalizer import normalize_item_name
-from .inventory_item import InventoryItem
 from .exceptions import CommandProcessingError, DatabaseError, DisplayError, InventoryError
+from .inventory_item import InventoryItem
+from .item_normalizer import normalize_item_name
 
 
 class InventoryController:
@@ -23,6 +25,12 @@ class InventoryController:
         self.config_manager = config_manager
         self._command_history: List[Tuple[str, InventoryItem]] = []
         self._last_rendered_inventory: Optional[List[Tuple[str, int]]] = None
+        # update_display_with_inventory is invoked from both the main loop
+        # (motion-active transition) and the voice worker thread (after a
+        # successful process_command). The Waveshare driver writes to SPI
+        # with no internal locking, so concurrent renders corrupt the busy-
+        # pin handshake. Serialise all renders here.
+        self._display_lock = threading.Lock()
 
         if self.display:
             logging.info("Display instance provided to InventoryController")
@@ -91,24 +99,26 @@ class InventoryController:
     def update_display_with_inventory(self):
         """Fetch inventory and refresh the display. Only items with quantity>0
         are shown; if the inventory is unchanged since the last render, the
-        ~3.5s e-paper refresh is skipped."""
+        ~3.5s e-paper refresh is skipped. Serialised against concurrent
+        renders from the main loop and the voice worker thread."""
         if not self.display:
             return
-        try:
-            db_inventory_list = sorted(self._db_manager.get_inventory())
-            display_list = [(name, qty) for name, qty in db_inventory_list if qty > 0]
+        with self._display_lock:
+            try:
+                db_inventory_list = sorted(self._db_manager.get_inventory())
+                display_list = [(name, qty) for name, qty in db_inventory_list if qty > 0]
 
-            if display_list == self._last_rendered_inventory:
-                logging.debug("Inventory unchanged since last render; skipping refresh")
-                return
+                if display_list == self._last_rendered_inventory:
+                    logging.debug("Inventory unchanged since last render; skipping refresh")
+                    return
 
-            if not display_inventory(self.display, display_list, self.config_manager):
-                raise DisplayError("Display inventory render failed")
-            self._last_rendered_inventory = display_list
-            logging.info(f"Updated display with {len(display_list)} items.")
-        except Exception as e:
-            logging.error(f"Failed to update display with inventory: {e}")
-            raise
+                if not display_inventory(self.display, display_list, self.config_manager):
+                    raise DisplayError("Display inventory render failed")
+                self._last_rendered_inventory = display_list
+                logging.info(f"Updated display with {len(display_list)} items.")
+            except Exception as e:
+                logging.error(f"Failed to update display with inventory: {e}")
+                raise
     
     def _generate_feedback(self, command_type: str, item: Optional[InventoryItem], new_quantity: Optional[int], undo_item_name: Optional[str] = None) -> str:
         """Generate feedback message based on command type and current inventory.

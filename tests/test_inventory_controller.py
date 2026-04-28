@@ -107,6 +107,41 @@ def test_process_command_missing_item_has_specific_feedback(controller):
         assert feedback == "Could not identify a valid item and quantity. Please try again."
 
 
+def test_update_display_serialises_concurrent_renders(controller):
+    """Two threads calling update_display_with_inventory must not both reach
+    display_inventory simultaneously — the e-paper driver is not thread-safe."""
+    import threading
+
+    controller.db.get_inventory.side_effect = lambda: [("salmon", 1)]
+
+    in_render = threading.Event()
+    proceed = threading.Event()
+    overlapped = []
+
+    def slow_render(display, items, cfg):
+        if in_render.is_set():
+            overlapped.append(True)
+        in_render.set()
+        proceed.wait(timeout=1)
+        in_render.clear()
+        return True
+
+    with patch('pi_inventory_system.inventory_controller.display_inventory',
+              side_effect=slow_render):
+        t1 = threading.Thread(target=controller.update_display_with_inventory)
+        t1.start()
+        # Force the second call to see a different inventory so the dedup cache
+        # does not turn it into a no-op.
+        controller._last_rendered_inventory = []
+        t2 = threading.Thread(target=controller.update_display_with_inventory)
+        t2.start()
+        proceed.set()
+        t1.join(timeout=2)
+        t2.join(timeout=2)
+
+    assert overlapped == []
+
+
 def test_process_command_set_to_zero_deletes(controller):
     """`set X to 0` must reach set_item — quantity 0 is the delete idiom for set."""
     item = InventoryItem(item_name="chicken", quantity=0)
