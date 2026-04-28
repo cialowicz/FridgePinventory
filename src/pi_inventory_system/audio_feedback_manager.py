@@ -2,15 +2,15 @@
 
 import logging
 import os
-import threading
 import queue
-import time
+import shutil
+import subprocess
+import threading
 from typing import Optional
 
 
 logger = logging.getLogger(__name__)
 
-# Try to import optional audio libraries
 try:
     import pyttsx3
     PYTTSX3_AVAILABLE = True
@@ -18,10 +18,23 @@ except ImportError:
     PYTTSX3_AVAILABLE = False
 
 try:
-    from playsound import playsound
-    PLAYSOUND_AVAILABLE = True
+    import simpleaudio
+    SIMPLEAUDIO_AVAILABLE = True
 except ImportError:
-    PLAYSOUND_AVAILABLE = False
+    SIMPLEAUDIO_AVAILABLE = False
+
+
+def _play_wav_file(path: str) -> None:
+    """Play a WAV file via simpleaudio if available, else fall back to aplay."""
+    if SIMPLEAUDIO_AVAILABLE:
+        wave_obj = simpleaudio.WaveObject.from_wave_file(path)
+        wave_obj.play().wait_done()
+        return
+    aplay = shutil.which("aplay")
+    if aplay:
+        subprocess.run([aplay, "-q", path], check=True)
+        return
+    raise RuntimeError("No WAV playback backend available (simpleaudio or aplay)")
 
 
 class AudioFeedbackManager:
@@ -181,59 +194,50 @@ class AudioFeedbackManager:
     
     def play_sound(self, sound_type: str) -> bool:
         """Play a feedback sound.
-        
-        Args:
-            sound_type: Type of sound ('success', 'error', 'warning').
-            
-        Returns:
-            True if sound was played or printed.
+
+        Returns True only on actual playback success. Returns False on missing
+        backends, missing files, unknown types, or playback errors so that
+        startup diagnostics report audio failures honestly.
         """
-        if self._sound_disabled or not PLAYSOUND_AVAILABLE:
-            # Fallback to print
-            print(f"[Sound]: {sound_type}")
-            return True
-        
+        if self._sound_disabled:
+            self.logger.debug(f"Sound disabled (circuit breaker), skipping {sound_type}")
+            return False
+        if not SIMPLEAUDIO_AVAILABLE and not shutil.which("aplay"):
+            self.logger.warning("No audio backend available (simpleaudio or aplay)")
+            return False
+
         with self._sound_lock:
+            audio_config = self._config.get_audio_config()
+            sound_config = audio_config.get('feedback_sounds', {})
+
+            sound_map = {
+                'success': sound_config.get('success_sound', 'sounds/success.wav'),
+                'error': sound_config.get('error_sound', 'sounds/error.wav'),
+                'warning': sound_config.get('warning_sound', 'sounds/warning.wav'),
+            }
+            sound_file = sound_map.get(sound_type)
+            if not sound_file:
+                self.logger.warning(f"Unknown sound type: {sound_type}")
+                return False
+
+            if not os.path.isabs(sound_file):
+                current_dir = os.path.dirname(os.path.abspath(__file__))
+                project_root = os.path.abspath(os.path.join(current_dir, '..', '..'))
+                sound_file = os.path.join(project_root, 'assets', sound_file)
+
+            if not os.path.exists(sound_file):
+                self.logger.warning(f"Sound file not found: {sound_file}")
+                return False
+
             try:
-                # Get sound configuration
-                audio_config = self._config.get_audio_config()
-                sound_config = audio_config.get('feedback_sounds', {})
-                
-                # Get sound file path
-                sound_map = {
-                    'success': sound_config.get('success_sound', 'sounds/success.wav'),
-                    'error': sound_config.get('error_sound', 'sounds/error.wav'),
-                    'warning': sound_config.get('warning_sound', 'sounds/warning.wav')
-                }
-                
-                sound_file = sound_map.get(sound_type)
-                if not sound_file:
-                    self.logger.warning(f"Unknown sound type: {sound_type}")
-                    return False
-                
-                # Make path absolute if needed
-                if not os.path.isabs(sound_file):
-                    current_dir = os.path.dirname(os.path.abspath(__file__))
-                    project_root = os.path.abspath(os.path.join(current_dir, '..', '..'))
-                    sound_file = os.path.join(project_root, 'assets', sound_file)
-                
-                # Check if file exists
-                if not os.path.exists(sound_file):
-                    self.logger.warning(f"Sound file not found: {sound_file}")
-                    print(f"[Sound]: {sound_type}")
-                    return True
-                
-                # Play sound
-                playsound(sound_file)
+                _play_wav_file(sound_file)
                 self.logger.debug(f"Played {sound_type} sound: {sound_file}")
-                self._sound_failures = 0  # Reset on success
+                self._sound_failures = 0
                 return True
-                
             except Exception as e:
                 self.logger.error(f"Failed to play sound: {e}")
                 self._handle_sound_failure()
-                print(f"[Sound]: {sound_type}")
-                return True
+                return False
     
     def output_confirmation(self, message: str) -> bool:
         """Output confirmation with TTS and sound.

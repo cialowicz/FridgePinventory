@@ -10,23 +10,31 @@ authors = [
     {name = "Mike Cialowicz"},
 ]
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 dependencies = [
-    "pyaudio",
-    "spacy",
-    "SpeechRecognition",
-    "word2number",
-    "pyttsx3",
-    "numpy",
-    "PyYAML",
     "Pillow",
-    "playsound",
-    "inky",
-    "RPi.GPIO",
+    "PyYAML",
+    "SpeechRecognition",
+    "numpy",
+    "pyttsx3",
+    "spacy",
+    "word2number",
+]
+
+[project.optional-dependencies]
+audio = [
+    "pyaudio",
     "pocketsphinx",
-    "spidev",
-    "gpiozero",
-    "lgpio",
+    "simpleaudio",
+]
+hardware = [
+    "RPi.GPIO ; platform_machine == 'armv7l' or platform_machine == 'aarch64'",
+    "gpiozero ; platform_machine == 'armv7l' or platform_machine == 'aarch64'",
+    "lgpio ; platform_machine == 'armv7l' or platform_machine == 'aarch64'",
+]
+test = [
+    "pytest",
+    "pytest-cov",
 ]
 
 [project.scripts]
