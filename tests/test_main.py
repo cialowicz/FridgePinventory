@@ -22,12 +22,18 @@ def app_context():
          patch('pi_inventory_system.main.MotionSensorManager') as motion_cls, \
          patch('pi_inventory_system.main.VoiceRecognitionManager') as voice_cls, \
          patch('pi_inventory_system.main.AudioFeedbackManager') as audio_cls, \
-         patch('pi_inventory_system.main.signal.signal'):
-        motion = MagicMock()
-        voice = MagicMock()
-        audio = MagicMock()
+         patch('signal.signal'):
+        motion = MagicMock(name="motion")
+        audio = MagicMock(name="audio")
+        # Each call to the patched class returns a new mock so retire produces
+        # a distinct successor from the original.
+        voice = MagicMock(name="voice_initial")
+        voice_cls.side_effect = [
+            voice,
+            MagicMock(name="voice_replacement_1"),
+            MagicMock(name="voice_replacement_2"),
+        ]
         motion_cls.return_value = motion
-        voice_cls.return_value = voice
         audio_cls.return_value = audio
 
         app = FridgePinventoryApp(config_path="custom.yaml", db_path="custom.db")
@@ -85,7 +91,7 @@ def test_handle_voice_command_outputs_error(app_context):
 def test_kick_voice_command_does_not_block_motion_loop(app_context):
     app, _, _, _, _, _, _, _ = app_context
 
-    def slow_voice_command(_display_ok):
+    def slow_voice_command(_display_ok, _voice_manager=None):
         time.sleep(0.2)
 
     app._handle_voice_command = slow_voice_command
@@ -113,9 +119,72 @@ def test_voice_timeout_retires_worker(app_context):
 
     future.cancel.assert_called_once()
     old_executor.shutdown.assert_called_once_with(wait=False, cancel_futures=True)
+    old_voice.cleanup.assert_called_once()
     assert app._voice_future is None
-    assert old_executor in app._retired_voice_executors
-    assert old_voice in app._retired_voice_managers
+    # The fresh worker is functional and is the new owned manager.
+    assert app._voice_executor is not old_executor
+    assert app._owned_voice_manager is app.voice_manager
+    assert app._owned_voice_manager is not old_voice
+
+
+def test_voice_executor_after_retire_runs_followup_command(app_context):
+    """After a retire, a freshly submitted voice command must complete on the new executor."""
+    app, _, _, _, _, _, old_voice, audio = app_context
+    app.controller = MagicMock()
+    app.running = True
+
+    # Force a retire.
+    app._voice_started_at = time.monotonic() - VOICE_TIMEOUT_SECONDS - 1
+    future_stub = MagicMock()
+    future_stub.done.return_value = False
+    app._voice_future = future_stub
+    assert app._check_voice_future() is False
+
+    # Wire the *new* manager to a successful recognition.
+    new_voice = app.voice_manager
+    new_voice.recognize_speech.return_value = "add 1 salmon"
+    app.controller.process_command.return_value = (True, "salmon now has 1 in inventory.")
+
+    app._kick_voice_command(display_ok=False)
+    app._voice_future.result(timeout=1)
+
+    audio.output_confirmation.assert_called_once()
+
+
+def test_voice_command_emits_one_display_refresh(app_context):
+    """A successful voice command renders the display exactly once
+    (process_command refreshes; the motion-active branch defers to the cache)."""
+    app, _, _, _, _, _, voice, _ = app_context
+    voice.recognize_speech.return_value = "add 1 salmon"
+    app.controller = MagicMock()
+    # Mimic real behaviour: process_command would call update_display_with_inventory.
+    def fake_process(cmd):
+        app.controller.update_display_with_inventory()
+        return True, "salmon now has 1 in inventory."
+    app.controller.process_command.side_effect = fake_process
+    app.running = True
+
+    app._handle_voice_command(display_ok=True)
+
+    assert app.controller.update_display_with_inventory.call_count == 1
+
+
+def test_orphaned_voice_task_does_not_emit_audio(app_context):
+    """A task whose manager has been retired must not call output_*."""
+    app, _, _, _, _, _, voice, audio = app_context
+    app.running = True
+    app.controller = MagicMock()
+    voice.recognize_speech.return_value = "add 1 salmon"
+
+    # Simulate retire: bound manager no longer matches the owned one.
+    orphan_manager = MagicMock()
+    orphan_manager.recognize_speech.return_value = "add 1 salmon"
+
+    app._handle_voice_command(display_ok=True, voice_manager=orphan_manager)
+
+    audio.output_confirmation.assert_not_called()
+    audio.output_error.assert_not_called()
+    app.controller.process_command.assert_not_called()
 
 
 def test_refresh_display_best_effort_does_not_raise(app_context):

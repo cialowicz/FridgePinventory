@@ -2,7 +2,7 @@
 
 # Database Configuration
 database:
-  path: "inventory.db"  # Use file-based database instead of :memory:
+  path: "~/.local/share/fridgepinventory/inventory.db"  # Override with FRIDGE_DATABASE__PATH if needed
   
 # Display Configuration
 display:

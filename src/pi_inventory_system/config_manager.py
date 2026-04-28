@@ -51,7 +51,7 @@ class ConfigManager:
         """Return default configuration values."""
         return {
             'database': {
-                'path': ':memory:'
+                'path': '~/.local/share/fridgepinventory/inventory.db'
             },
             'display': {
                 'font': {

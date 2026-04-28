@@ -48,8 +48,9 @@ class FridgePinventoryApp:
         self._voice_future: Optional[Future] = None
         self._voice_started_at: Optional[float] = None
         self._voice_timeout_logged = False
-        self._retired_voice_executors = []
-        self._retired_voice_managers = []
+        # Bound copies of the manager triple submitted with each voice task —
+        # protects an in-flight task from a mid-flight reset_voice_worker swap.
+        self._owned_voice_manager = self.voice_manager
 
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
@@ -106,10 +107,17 @@ class FridgePinventoryApp:
         self.running = False
         self.shutdown_event.set()
 
-    def _handle_voice_command(self, display_ok: bool) -> None:
+    def _handle_voice_command(self, display_ok: bool, voice_manager=None) -> None:
+        # voice_manager is captured at submit time so a later reset_voice_worker
+        # swap cannot redirect this in-flight task onto a different manager.
+        voice_manager = voice_manager or self.voice_manager
         try:
-            command = self.voice_manager.recognize_speech()
-            if command and self.running:
+            command = voice_manager.recognize_speech()
+            # If we were retired by a timeout, drop on the floor instead of
+            # firing audio cues seconds after the user moved on.
+            if voice_manager is not self._owned_voice_manager or not self.running:
+                return
+            if command:
                 self.logger.info(f"Command received: {command}")
                 success, feedback = self.controller.process_command(command)
                 self.logger.info(f"Command result: {feedback}")
@@ -148,13 +156,28 @@ class FridgePinventoryApp:
         return True
 
     def _reset_voice_worker(self) -> None:
-        """Retire the current voice worker after a timeout and allow future commands."""
+        """Retire a stuck voice worker so subsequent commands can run.
+
+        The blocked task likely holds the microphone open inside
+        ``recognizer.listen``; we shut down the old executor (no wait, since
+        joining would block forever) and best-effort the old manager's cleanup
+        before swapping in fresh ones. The in-flight task is now orphaned
+        from this app instance — `_handle_voice_command` checks
+        ``voice_manager is self._owned_voice_manager`` and bails out instead
+        of firing audio cues from beyond the grave.
+        """
         if self._voice_future:
             self._voice_future.cancel()
-        self._retired_voice_executors.append(self._voice_executor)
-        self._retired_voice_managers.append(self.voice_manager)
-        self._voice_executor.shutdown(wait=False, cancel_futures=True)
+        old_executor = self._voice_executor
+        old_manager = self.voice_manager
+        old_executor.shutdown(wait=False, cancel_futures=True)
+        try:
+            old_manager.cleanup()
+        except Exception as e:
+            self.logger.warning(f"Old voice manager cleanup failed: {e}")
+
         self.voice_manager = VoiceRecognitionManager(config_manager=self.config_manager)
+        self._owned_voice_manager = self.voice_manager
         self._voice_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="voice")
         self._voice_future = None
         self._voice_started_at = None
@@ -164,7 +187,10 @@ class FridgePinventoryApp:
         if self._check_voice_future():
             return
         self._voice_started_at = time.monotonic()
-        self._voice_future = self._voice_executor.submit(self._handle_voice_command, display_ok)
+        bound_manager = self.voice_manager
+        self._voice_future = self._voice_executor.submit(
+            self._handle_voice_command, display_ok, bound_manager,
+        )
 
     def run(self) -> None:
         if not self.initialize():
@@ -187,19 +213,24 @@ class FridgePinventoryApp:
 
             previous_mode = loop.mode
             motion_available = motion_ok
-            motion_retry_logged = False
+            motion_retry_announced = False
+            if not motion_available:
+                self.logger.warning("Motion sensor unavailable at startup; will retry until it returns")
+                motion_retry_announced = True
             while self.running and not self.shutdown_event.is_set():
                 self._check_voice_future()
 
                 if not motion_available:
                     motion_available = self._motion_sensor_available()
-                    if motion_available and not motion_retry_logged:
-                        self.logger.warning("Motion diagnostics failed; retrying motion polling")
-                        motion_retry_logged = True
-
-                if not motion_available:
-                    self.shutdown_event.wait(timeout=1.0)
-                    continue
+                    if motion_available:
+                        self.logger.info("Motion sensor recovered; resuming motion polling")
+                        motion_retry_announced = False
+                    else:
+                        if not motion_retry_announced:
+                            self.logger.warning("Motion sensor unavailable; will retry")
+                            motion_retry_announced = True
+                        self.shutdown_event.wait(timeout=1.0)
+                        continue
 
                 decision = loop.step(time.time(), self.motion_manager.detect_motion)
 
@@ -231,10 +262,8 @@ class FridgePinventoryApp:
 
         cleanup_steps = [
             ("voice executor", lambda: self._voice_executor.shutdown(wait=False, cancel_futures=True)),
-            ("retired voice executors", self._cleanup_retired_voice_executors),
             ("motion manager", self.motion_manager.cleanup),
             ("voice manager", self.voice_manager.cleanup),
-            ("retired voice managers", self._cleanup_retired_voice_managers),
             ("audio feedback", self.audio_feedback.cleanup),
         ]
         if self.display:
@@ -249,16 +278,6 @@ class FridgePinventoryApp:
                 self.logger.error(f"Error during {label} cleanup: {e}")
 
         self.logger.info("Cleanup complete")
-
-    def _cleanup_retired_voice_executors(self) -> None:
-        for executor in self._retired_voice_executors:
-            executor.shutdown(wait=False, cancel_futures=True)
-        self._retired_voice_executors = []
-
-    def _cleanup_retired_voice_managers(self) -> None:
-        for manager in self._retired_voice_managers:
-            manager.cleanup()
-        self._retired_voice_managers = []
 
 
 def main():

@@ -149,6 +149,30 @@ def test_add_item_propagates_database_error(db_manager_instance, monkeypatch):
         db_manager_instance.add_item("steak", 1)
 
 
+def test_resolve_db_path_expands_user_and_creates_parent(tmp_path, monkeypatch):
+    from pi_inventory_system.database_manager import DatabaseManager
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    resolved = DatabaseManager._resolve_db_path("~/data/sub/inventory.db")
+    expected = tmp_path / "data" / "sub" / "inventory.db"
+    assert resolved == str(expected)
+    assert expected.parent.is_dir()
+
+
+def test_resolve_db_path_passes_through_memory():
+    from pi_inventory_system.database_manager import DatabaseManager
+    assert DatabaseManager._resolve_db_path(":memory:") == ":memory:"
+
+
+def test_resolve_db_path_expands_env_vars(tmp_path, monkeypatch):
+    from pi_inventory_system.database_manager import DatabaseManager
+
+    monkeypatch.setenv("FRIDGE_DATA_DIR", str(tmp_path / "envdata"))
+    resolved = DatabaseManager._resolve_db_path("$FRIDGE_DATA_DIR/inv.db")
+    assert resolved == str(tmp_path / "envdata" / "inv.db")
+    assert (tmp_path / "envdata").is_dir()
+
+
 def test_split_sql_statements_handles_trigger():
     from pi_inventory_system.database_manager import DatabaseManager
     script = """

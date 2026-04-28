@@ -135,10 +135,16 @@ class InventoryController:
     
     def _validate_item(self, item: InventoryItem, command_type: str) -> bool:
         """Validate inventory item before processing.
-        
+
+        Quantity 0 is permitted only for `set` (treated as a delete);
+        `add`/`remove` reject 0. Quantity is capped at 10 000 for all command
+        types — `set` simply replaces, `add` separately re-checks the running
+        total in `_execute_command`.
+
         Args:
             item: Item to validate
-            
+            command_type: 'add' | 'remove' | 'set'
+
         Returns:
             True if item is valid
         """

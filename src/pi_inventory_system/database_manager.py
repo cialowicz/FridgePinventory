@@ -1,10 +1,12 @@
 # SQLite database manager for the Pi application.
 
 import logging
+import os
 import sqlite3
 import threading
 from contextlib import contextmanager
 from importlib import resources
+from pathlib import Path
 from typing import Any, List, Optional
 
 from .exceptions import DatabaseError
@@ -24,7 +26,8 @@ class DatabaseManager:
         """
         from .config_manager import get_default_config_manager
         self._config_manager = config_manager or get_default_config_manager()
-        self._db_path = db_path or self._config_manager.get('database', 'path')
+        raw_path = db_path or self._config_manager.get('database', 'path') or ':memory:'
+        self._db_path = self._resolve_db_path(raw_path)
         # check_same_thread=False lets the voice worker use the same connection;
         # every connection access must remain guarded by this re-entrant lock.
         self._lock = threading.RLock()
@@ -32,6 +35,20 @@ class DatabaseManager:
         self._initialized = False
         self.initialize()
     
+    @staticmethod
+    def _resolve_db_path(raw_path: str) -> str:
+        """Expand ~ / env vars and ensure the parent directory exists for file paths."""
+        if raw_path == ':memory:':
+            return raw_path
+        expanded = os.path.expandvars(os.path.expanduser(raw_path))
+        parent = Path(expanded).parent
+        if str(parent) and parent != Path('') and parent != Path('.'):
+            try:
+                parent.mkdir(parents=True, exist_ok=True)
+            except OSError as e:
+                logger.warning(f"Could not create database directory {parent}: {e}")
+        return expanded
+
     def _get_connection(self) -> sqlite3.Connection:
         """Get or create the database connection."""
         if self._connection is None:

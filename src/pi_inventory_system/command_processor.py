@@ -47,7 +47,10 @@ MAX_QUANTITY = 10000
 
 
 def _ensure_nlp(config_manager):
-    """Load spaCy lazily; cache the result so we only attempt once."""
+    """Load spaCy lazily. Permanent skips (no spacy installed, disabled in
+    config) latch via _nlp_load_attempted; transient OSError from a partially
+    installed model leaves the flag False so a later restart of the load
+    succeeds without restarting the process."""
     global _nlp, _nlp_load_attempted
     if _nlp_load_attempted:
         return _nlp
@@ -55,23 +58,29 @@ def _ensure_nlp(config_manager):
     with _nlp_lock:
         if _nlp_load_attempted:
             return _nlp
-        # Cache unavailable/failed loads so every command does not retry the
-        # expensive import path when the model is intentionally absent.
-        _nlp_load_attempted = True
 
         if spacy is None:
+            _nlp_load_attempted = True
             return None
         nlp_config = config_manager.get_nlp_config()
         if not nlp_config.get('enable_spacy', True):
             logging.info("spaCy disabled in configuration, using rule-based parsing")
+            _nlp_load_attempted = True
             return None
         model_name = nlp_config.get('spacy_model', 'en_core_web_sm')
         try:
             _nlp = spacy.load(model_name)
             logging.info(f"Loaded spaCy model: {model_name}")
+            _nlp_load_attempted = True
+        except OSError as e:
+            logging.warning(
+                f"spaCy model '{model_name}' load failed (transient): {e}; "
+                "will retry on next command")
+            _nlp = None
         except Exception as e:
             logging.warning(f"spaCy model '{model_name}' unavailable, falling back: {e}")
             _nlp = None
+            _nlp_load_attempted = True
         return _nlp
 
 
