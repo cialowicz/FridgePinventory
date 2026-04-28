@@ -62,15 +62,20 @@ class InventoryController:
                 if not self._validate_item(item):
                     return False, "Invalid item details. Please check the item name and quantity."
             
-            success, new_quantity, undo_item_name = self._execute_command(command_type, item)
+            success, new_quantity, status_item_name = self._execute_command(command_type, item)
             if not success:
+                if command_type == "remove" and status_item_name:
+                    return False, f"{status_item_name} is not in inventory."
                 return False, "Command failed to execute. Please check inventory and try again."
 
             # Generate appropriate feedback message
-            feedback = self._generate_feedback(command_type, item, new_quantity, undo_item_name)
+            feedback = self._generate_feedback(command_type, item, new_quantity, status_item_name)
             
             # Update display
-            self.update_display_with_inventory()
+            try:
+                self.update_display_with_inventory()
+            except Exception as e:
+                logging.error(f"Inventory updated but display refresh failed: {e}")
             
             return True, feedback
             
@@ -162,7 +167,7 @@ class InventoryController:
         return True
     
     def _execute_command(self, command_type: str, item: Optional[InventoryItem]) -> Tuple[bool, Optional[int], Optional[str]]:
-        """Execute a command and return (success, new_quantity, undo_item_name)."""
+        """Execute a command and return (success, new_quantity, affected_item_name)."""
         if command_type == "undo":
             try:
                 success, undo_item_name = self._db_manager.undo_last_change()
@@ -190,6 +195,9 @@ class InventoryController:
                         f"Cannot add {normalized.quantity} - would exceed maximum of 10000")
                 success = self._db_manager.add_item(normalized.item_name, normalized.quantity)
             elif command_type == "remove":
+                current_qty = self._db_manager.get_current_quantity(normalized.item_name)
+                if current_qty <= 0:
+                    return False, 0, normalized.item_name
                 success = self._db_manager.remove_item(normalized.item_name, normalized.quantity)
             elif command_type == "set":
                 success = self._db_manager.set_item(normalized.item_name, normalized.quantity)

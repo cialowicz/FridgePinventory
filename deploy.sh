@@ -195,10 +195,11 @@ import sys
 import os
 sys.path.insert(0, '$(pwd)/src')
 try:
-    from pi_inventory_system.waveshare_display import WaveshareDisplay, WAVESHARE_AVAILABLE
+    import pi_inventory_system.waveshare_display as waveshare_display
+    waveshare_display.ensure_waveshare_lib()
     print(f'✓ Our waveshare_display module imports successfully')
-    print(f'✓ WAVESHARE_AVAILABLE = {WAVESHARE_AVAILABLE}')
-    if WAVESHARE_AVAILABLE:
+    print(f'✓ WAVESHARE_AVAILABLE = {waveshare_display.WAVESHARE_AVAILABLE}')
+    if waveshare_display.WAVESHARE_AVAILABLE:
         print('✓ Waveshare library is available and should work on Pi')
     else:
         print('⚠ Waveshare library not available, will use mock display')
@@ -298,15 +299,16 @@ try:
     print('✓ Display manager imports successfully')
     
     # Test waveshare display module
-    from pi_inventory_system.waveshare_display import WaveshareDisplay, WAVESHARE_AVAILABLE
+    import pi_inventory_system.waveshare_display as waveshare_display
     print('✓ Waveshare display module imports successfully')
-    print(f'✓ WAVESHARE_AVAILABLE = {WAVESHARE_AVAILABLE}')
+    waveshare_display.ensure_waveshare_lib()
+    print(f'✓ WAVESHARE_AVAILABLE = {waveshare_display.WAVESHARE_AVAILABLE}')
     
     # Try creating a display instance (should work even on non-Pi with mock)
-    display = WaveshareDisplay()
+    display = waveshare_display.WaveshareDisplay()
     print('✓ WaveshareDisplay instance created successfully')
     
-    if WAVESHARE_AVAILABLE:
+    if waveshare_display.WAVESHARE_AVAILABLE:
         print('🎉 SUCCESS: Waveshare library is properly installed and ready for Pi deployment!')
     else:
         print('⚠️  INFO: Mock display will be used (expected when not on Pi)')

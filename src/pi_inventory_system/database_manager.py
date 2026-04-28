@@ -38,7 +38,8 @@ class DatabaseManager:
                 self._connection = sqlite3.connect(
                     self._db_path, 
                     timeout=db_config.get('timeout', 30.0),
-                    isolation_level=None
+                    isolation_level=None,
+                    check_same_thread=False,
                 )
                 self._connection.row_factory = sqlite3.Row
                 
@@ -170,6 +171,40 @@ class DatabaseManager:
             result = cursor.fetchone()
             cursor.close()
             return result['quantity'] if result else 0
+
+    def _set_inventory_quantity(self, cursor: sqlite3.Cursor, item_name: str, quantity: int) -> None:
+        """Set inventory quantity, inserting or deleting the row as needed."""
+        if quantity <= 0:
+            cursor.execute(
+                "DELETE FROM inventory WHERE item_name = ?",
+                (item_name,)
+            )
+            return
+
+        cursor.execute(
+            "UPDATE inventory SET quantity = ? WHERE item_name = ?",
+            (quantity, item_name)
+        )
+        if cursor.rowcount == 0:
+            cursor.execute(
+                "INSERT INTO inventory (item_name, quantity) VALUES (?, ?)",
+                (item_name, quantity)
+            )
+
+    def _record_history(
+        self,
+        cursor: sqlite3.Cursor,
+        item_name: str,
+        previous_quantity: int,
+        new_quantity: int,
+        operation_type: str,
+    ) -> None:
+        cursor.execute(
+            """INSERT INTO inventory_history 
+               (item_name, previous_quantity, new_quantity, operation_type)
+               VALUES (?, ?, ?, ?)""",
+            (item_name, previous_quantity, new_quantity, operation_type)
+        )
     
     def add_item(self, item_name: str, quantity: int) -> bool:
         """Add items to inventory. Raises DatabaseError on storage failure."""
@@ -177,27 +212,13 @@ class DatabaseManager:
             try:
                 with self._transaction() as conn:
                     cursor = conn.cursor()
-                    current = self.get_current_quantity(item_name)
-                    new_quantity = current + quantity
-                    
-                    if current > 0:
-                        cursor.execute(
-                            "UPDATE inventory SET quantity = ? WHERE item_name = ?",
-                            (new_quantity, item_name)
-                        )
-                    else:
-                        cursor.execute(
-                            "INSERT INTO inventory (item_name, quantity) VALUES (?, ?)",
-                            (item_name, new_quantity)
-                        )
-                    
-                    cursor.execute(
-                        """INSERT INTO inventory_history 
-                           (item_name, previous_quantity, new_quantity, operation_type)
-                           VALUES (?, ?, ?, 'add')""",
-                        (item_name, current, new_quantity)
-                    )
-                    cursor.close()
+                    try:
+                        current = self.get_current_quantity(item_name)
+                        new_quantity = current + quantity
+                        self._set_inventory_quantity(cursor, item_name, new_quantity)
+                        self._record_history(cursor, item_name, current, new_quantity, 'add')
+                    finally:
+                        cursor.close()
                 return True
             except sqlite3.Error as e:
                 logger.error(f"Database error in add_item({item_name}): {e}")
@@ -209,27 +230,16 @@ class DatabaseManager:
             try:
                 with self._transaction() as conn:
                     cursor = conn.cursor()
-                    current = self.get_current_quantity(item_name)
-                    new_quantity = max(0, current - quantity)
-                    
-                    if new_quantity == 0:
-                        cursor.execute(
-                            "DELETE FROM inventory WHERE item_name = ?",
-                            (item_name,)
-                        )
-                    else:
-                        cursor.execute(
-                            "UPDATE inventory SET quantity = ? WHERE item_name = ?",
-                            (new_quantity, item_name)
-                        )
-                    
-                    cursor.execute(
-                        """INSERT INTO inventory_history 
-                           (item_name, previous_quantity, new_quantity, operation_type)
-                           VALUES (?, ?, ?, 'remove')""",
-                        (item_name, current, new_quantity)
-                    )
-                    cursor.close()
+                    try:
+                        current = self.get_current_quantity(item_name)
+                        if current <= 0:
+                            return False
+
+                        new_quantity = max(0, current - quantity)
+                        self._set_inventory_quantity(cursor, item_name, new_quantity)
+                        self._record_history(cursor, item_name, current, new_quantity, 'remove')
+                    finally:
+                        cursor.close()
                 return True
             except sqlite3.Error as e:
                 logger.error(f"Database error in remove_item({item_name}): {e}")
@@ -241,31 +251,12 @@ class DatabaseManager:
             try:
                 with self._transaction() as conn:
                     cursor = conn.cursor()
-                    current = self.get_current_quantity(item_name)
-                    
-                    if quantity == 0:
-                        cursor.execute(
-                            "DELETE FROM inventory WHERE item_name = ?",
-                            (item_name,)
-                        )
-                    elif current > 0:
-                        cursor.execute(
-                            "UPDATE inventory SET quantity = ? WHERE item_name = ?",
-                            (quantity, item_name)
-                        )
-                    else:
-                        cursor.execute(
-                            "INSERT INTO inventory (item_name, quantity) VALUES (?, ?)",
-                            (item_name, quantity)
-                        )
-                    
-                    cursor.execute(
-                        """INSERT INTO inventory_history 
-                           (item_name, previous_quantity, new_quantity, operation_type)
-                           VALUES (?, ?, ?, 'set')""",
-                        (item_name, current, quantity)
-                    )
-                    cursor.close()
+                    try:
+                        current = self.get_current_quantity(item_name)
+                        self._set_inventory_quantity(cursor, item_name, quantity)
+                        self._record_history(cursor, item_name, current, quantity, 'set')
+                    finally:
+                        cursor.close()
                 return True
             except sqlite3.Error as e:
                 logger.error(f"Database error in set_item({item_name}): {e}")
@@ -290,16 +281,7 @@ class DatabaseManager:
                     item_name = last_change['item_name']
                     previous_quantity = last_change['previous_quantity']
                     
-                    if previous_quantity == 0:
-                        cursor.execute(
-                            "DELETE FROM inventory WHERE item_name = ?",
-                            (item_name,)
-                        )
-                    else:
-                        cursor.execute(
-                            "UPDATE inventory SET quantity = ? WHERE item_name = ?",
-                            (previous_quantity, item_name)
-                        )
+                    self._set_inventory_quantity(cursor, item_name, previous_quantity)
                     
                     cursor.execute(
                         "DELETE FROM inventory_history WHERE id = ?",

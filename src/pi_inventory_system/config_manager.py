@@ -34,6 +34,8 @@ class ConfigManager:
         try:
             with open(config_path, 'r') as f:
                 self._config = yaml.safe_load(f)
+            if self._config is None:
+                self._config = {}
             logger.info(f"Configuration loaded from {config_path}")
         except FileNotFoundError:
             logger.warning(f"Config file not found at {config_path}, using defaults")
@@ -100,6 +102,8 @@ class ConfigManager:
             },
             'system': {
                 'main_loop_delay': 0.1,
+                'motion_check_interval': 0.5,
+                'idle_delay': 1.0,
                 'log_level': 'INFO',
                 'enable_diagnostics': True
             },
@@ -134,19 +138,22 @@ class ConfigManager:
     
     def _convert_env_value(self, key: str, value: str) -> Any:
         """Convert environment variable string to appropriate type."""
-        if key in ['size', 'fallback_size', 'items_per_row', 'lozenge_height', 'spacing', 'margin', 'low_stock_threshold', 'timeout', 'phrase_time_limit', 'rate', 'device_index', 'pin', 'grayscale_levels', 'cache_size']:
+        if key in ['size', 'fallback_size', 'items_per_row', 'lozenge_height', 'spacing',
+                   'margin', 'low_stock_threshold', 'timeout', 'phrase_time_limit', 'rate',
+                   'device_index', 'pin', 'grayscale_levels', 'cache_size']:
             try:
                 return int(value)
             except ValueError:
                 logger.warning(f"Invalid integer value for {key}: {value}")
                 return None
-        elif key in ['similarity_threshold', 'volume', 'main_loop_delay']:
+        elif key in ['similarity_threshold', 'volume', 'main_loop_delay',
+                     'motion_check_interval', 'idle_delay']:
             try:
                 return float(value)
             except ValueError:
                 logger.warning(f"Invalid float value for {key}: {value}")
                 return None
-        elif key in ['enabled', 'auto_detect', 'enable_diagnostics', 'enable_spacy', 'wal_mode']:
+        elif key in ['enabled', 'auto_detect', 'enable_diagnostics', 'enable_spacy']:
             return value.lower() in ('true', '1', 'yes', 'on')
         return value
 

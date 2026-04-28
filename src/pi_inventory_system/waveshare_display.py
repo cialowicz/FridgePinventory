@@ -15,10 +15,15 @@ WAVESHARE_AVAILABLE = False
 epd_module = None
 epd_driver_name = None
 _epdconfig = None  # captured alongside the driver so cleanup can call module_exit
+_waveshare_setup_attempted = False
 
 def _setup_waveshare_lib():
     """Setup the Waveshare library path and import the module."""
-    global WAVESHARE_AVAILABLE, epd_module, epd_driver_name, _epdconfig
+    global WAVESHARE_AVAILABLE, epd_module, epd_driver_name, _epdconfig, _waveshare_setup_attempted
+
+    if _waveshare_setup_attempted:
+        return
+    _waveshare_setup_attempted = True
 
     from .platform_info import is_raspberry_pi
     if not is_raspberry_pi():
@@ -100,8 +105,10 @@ def _setup_waveshare_lib():
         _epdconfig = epd_module.epdconfig
         logger.info("epdconfig module captured for cleanup")
 
-# Check for the library when the module is loaded.
-_setup_waveshare_lib()
+def ensure_waveshare_lib() -> bool:
+    """Initialize Waveshare driver discovery on first use."""
+    _setup_waveshare_lib()
+    return WAVESHARE_AVAILABLE
 
 class WaveshareDisplay:
     """Driver for Waveshare 3.97" e-Paper HAT+ display."""
@@ -123,6 +130,7 @@ class WaveshareDisplay:
         self._initialized = False
         self._epd_instance = None
         self._is_mock = False
+        ensure_waveshare_lib()
         if WAVESHARE_AVAILABLE and epd_module:
             try:
                 logger.info(f"Using Waveshare driver: {epd_driver_name}")

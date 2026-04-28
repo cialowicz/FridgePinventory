@@ -49,6 +49,8 @@ commands:
 # System Configuration
 system:
   main_loop_delay: 0.1  # seconds
+  motion_check_interval: 0.5  # seconds
+  idle_delay: 1.0  # seconds
   log_level: "INFO"  # DEBUG, INFO, WARNING, ERROR
   enable_diagnostics: true
   

@@ -20,6 +20,8 @@ def mock_motion_manager():
         manager = MagicMock()
         manager.is_supported.return_value = True
         manager.detect_motion.return_value = False
+        manager.is_healthy.return_value = True
+        manager.last_error = None
         manager_class.return_value = manager
         yield manager
 
@@ -64,6 +66,14 @@ def test_diagnostics_display_failure(mock_display_init, mock_motion_manager, moc
 
 def test_diagnostics_motion_sensor_failure(mock_display_init, mock_motion_manager, mock_supported, mock_audio, cfg):
     mock_motion_manager.detect_motion.side_effect = Exception("sensor explosion")
+    with patch('pi_inventory_system.diagnostics.display_text', return_value=True):
+        _, motion_ok, _, _ = run_startup_diagnostics(cfg)
+        assert motion_ok is False
+
+
+def test_diagnostics_motion_sensor_unhealthy(mock_display_init, mock_motion_manager, mock_supported, mock_audio, cfg):
+    mock_motion_manager.is_healthy.return_value = False
+    mock_motion_manager.last_error = "pinctrl failed"
     with patch('pi_inventory_system.diagnostics.display_text', return_value=True):
         _, motion_ok, _, _ = run_startup_diagnostics(cfg)
         assert motion_ok is False

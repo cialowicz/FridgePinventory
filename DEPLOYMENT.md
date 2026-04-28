@@ -8,14 +8,14 @@ This guide will help you set up FridgePinventory on your Raspberry Pi.
 - Raspberry Pi OS (tested on Raspberry Pi OS Bookworm)
 - Internet connection
 - Required hardware:
-  - [Pimoroni inkWHAT 400x300 eInk display](https://learn.pimoroni.com/article/getting-started-with-inky-what))
+  - Waveshare 3.97" e-Paper HAT+ display
   - HC-SR501 PIR Infrared Motion Sensor
   - USB microphone
   - USB speaker
 
 ## Hardware Setup
 
-1. Connect the eInk display to the Raspberry Pi's GPIO pins
+1. Connect the Waveshare e-Paper HAT+ to the Raspberry Pi GPIO header
 2. Connect the motion sensor to the GPIO pins: 05 (5v), 06 (gnd), 07 (GPIO04/GPIO_GCLK)
 3. Connect the USB microphone
 4. Connect the USB speaker
@@ -41,23 +41,20 @@ This guide will help you set up FridgePinventory on your Raspberry Pi.
    cd FridgePinventory
    ```
 
-4. Install the Pimoroni inkyWHAT eInk display library:
-   ```
-   curl -sSL https://get.pimoroni.com/inky | bash
-   ```
-
-5. Make the deployment script executable:
+4. Make the deployment script executable:
    ```bash
    chmod +x deploy.sh
    ```
 
-6. Run the deployment script:
+5. Run the deployment script:
    ```bash
    ./deploy.sh
    ```
-   This script will also create a virtual environment (`~/.inky_venv`), install Python dependencies including `spacy` (and its `en_core_web_sm` model for NLP), `pyttsx3` (for text-to-speech), and `numpy` (a common dependency), and download the necessary `en_core_web_sm` spaCy model used for natural language processing in the command processor.
+   This script creates the e-paper virtual environment, installs Python dependencies,
+   installs the Waveshare display library, and downloads the spaCy model used by the
+   command processor when NLP parsing is enabled.
 
-7. Start the service:
+6. Start the service:
    ```bash
    sudo systemctl start fridgepinventory.service
    ```

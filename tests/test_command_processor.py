@@ -56,6 +56,26 @@ def test_to_vs_two_disambiguation(mock_config_manager):
     assert command_type == "add"
     assert item == InventoryItem(item_name="salmon", quantity=2)
 
+
+@pytest.mark.parametrize("command,expected_type,expected_item,expected_qty", [
+    ("Add 3 of chicken tenders", "add", "chicken tenders", 3),
+    ("Remove 2 of salmon", "remove", "salmon", 2),
+    ("Stock 2 salmon", "add", "salmon", 2),
+    ("Bought 2 salmon", "add", "salmon", 2),
+    ("Add a dozen salmon", "add", "salmon", 12),
+    ("Change salmon to 3", "set", "salmon", 3),
+])
+def test_documented_and_synonym_forms(
+    command,
+    expected_type,
+    expected_item,
+    expected_qty,
+    mock_config_manager,
+):
+    command_type, item = interpret_command(command, mock_config_manager)
+    assert command_type == expected_type
+    assert item == InventoryItem(item_name=expected_item, quantity=expected_qty)
+
 @pytest.mark.parametrize("command,expected_type", [
     ("Set tilapia to 3", "set"),
     ("Set tilapia fillet to 3", "set"),

@@ -140,9 +140,10 @@ def test_epd_creation():
 def test_display_module_integration():
     """Test if our display module can detect the driver."""
     try:
-        from pi_inventory_system.waveshare_display import WAVESHARE_AVAILABLE, epd_driver_name
-        if WAVESHARE_AVAILABLE:
-            print(f"✓ Our display module detected driver: {epd_driver_name}")
+        import pi_inventory_system.waveshare_display as waveshare_display
+        waveshare_display.ensure_waveshare_lib()
+        if waveshare_display.WAVESHARE_AVAILABLE:
+            print(f"✓ Our display module detected driver: {waveshare_display.epd_driver_name}")
             return True
         else:
             print("❌ Our display module reports: No driver available")
@@ -217,9 +218,10 @@ def test_waveshare_library(lines):
         
         # Test our waveshare_display module (legacy check)
         try:
-            from pi_inventory_system.waveshare_display import WAVESHARE_AVAILABLE, epd_driver_name
-            if WAVESHARE_AVAILABLE:
-                print(f"Our display module detected driver: {epd_driver_name}")
+            import pi_inventory_system.waveshare_display as waveshare_display
+            waveshare_display.ensure_waveshare_lib()
+            if waveshare_display.WAVESHARE_AVAILABLE:
+                print(f"Our display module detected driver: {waveshare_display.epd_driver_name}")
                 import_success = True
             else:
                 print("Our display module reports: No driver available")

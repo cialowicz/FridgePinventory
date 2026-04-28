@@ -65,12 +65,43 @@ def test_set_zero_deletes_row(db_manager_instance):
     assert db_manager_instance.get_current_quantity("steak") == 0
 
 
+def test_remove_missing_item_is_noop(db_manager_instance):
+    assert db_manager_instance.remove_item("salmon", 1) is False
+    conn = db_manager_instance._get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT COUNT(*) AS c FROM inventory_history")
+    assert cur.fetchone()['c'] == 0
+    cur.close()
+
+
 def test_undo_round_trip(db_manager_instance):
     db_manager_instance.add_item("steak", 4)
     success, name = db_manager_instance.undo_last_change()
     assert success is True
     assert name == "steak"
     assert db_manager_instance.get_current_quantity("steak") == 0
+
+
+def test_undo_restores_row_deleted_by_set_zero(db_manager_instance):
+    db_manager_instance.add_item("steak", 4)
+    db_manager_instance.set_item("steak", 0)
+
+    success, name = db_manager_instance.undo_last_change()
+
+    assert success is True
+    assert name == "steak"
+    assert db_manager_instance.get_current_quantity("steak") == 4
+
+
+def test_undo_restores_row_deleted_by_remove(db_manager_instance):
+    db_manager_instance.add_item("steak", 4)
+    db_manager_instance.remove_item("steak", 10)
+
+    success, name = db_manager_instance.undo_last_change()
+
+    assert success is True
+    assert name == "steak"
+    assert db_manager_instance.get_current_quantity("steak") == 4
 
 
 def test_undo_with_no_history(db_manager_instance):

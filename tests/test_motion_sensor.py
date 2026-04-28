@@ -58,42 +58,43 @@ def test_motion_sensor_unsupported_on_non_pi(mock_check_pi, mock_config_manager)
 @patch('pi_inventory_system.motion_sensor_manager.subprocess.run')
 def test_detect_motion_on_pi5(mock_subprocess, mock_check_pi, mock_check_pi5, mock_config_manager):
     """Test motion detection on Raspberry Pi 5 using pinctrl."""
-    manager = MotionSensorManager(config_manager=mock_config_manager)
+    with patch.object(MotionSensorManager, '_setup_gpiozero_pi5', return_value=False):
+        manager = MotionSensorManager(config_manager=mock_config_manager)
 
-    # Mock setup command success
-    mock_subprocess.return_value = MagicMock(stdout='level=1')
-    
-    # Test motion detected
-    assert manager.detect_motion() is True
-    # Check that setup and get were called
-    assert mock_subprocess.call_count == 2
-    assert 'pinctrl' in mock_subprocess.call_args_list[0].args[0]
-    assert 'set' in mock_subprocess.call_args_list[0].args[0]
-    assert 'get' in mock_subprocess.call_args_list[1].args[0]
+        # Mock setup command success
+        mock_subprocess.return_value = MagicMock(stdout='level=1')
+        
+        # Test motion detected
+        assert manager.detect_motion() is True
+        # Check that setup and get were called
+        assert mock_subprocess.call_count == 2
+        assert 'pinctrl' in mock_subprocess.call_args_list[0].args[0]
+        assert 'set' in mock_subprocess.call_args_list[0].args[0]
+        assert 'get' in mock_subprocess.call_args_list[1].args[0]
 
-    # Test no motion
-    mock_subprocess.reset_mock()
-    mock_subprocess.return_value = MagicMock(stdout='level=0')
-    assert manager.detect_motion() is False
-    # Initialization should not happen again, only 'get' should be called
-    assert mock_subprocess.call_count == 1
-    assert 'get' in mock_subprocess.call_args_list[0].args[0]
+        # Test no motion
+        mock_subprocess.reset_mock()
+        mock_subprocess.return_value = MagicMock(stdout='level=0')
+        assert manager.detect_motion() is False
+        # Initialization should not happen again, only 'get' should be called
+        assert mock_subprocess.call_count == 1
+        assert 'get' in mock_subprocess.call_args_list[0].args[0]
 
-    # Additional test to ensure correct initialization
-    mock_subprocess.reset_mock()
-    mock_subprocess.return_value = MagicMock(stdout='level=1')
-    assert manager.detect_motion() is True
-    # Check that only 'get' is called after initialization
-    assert mock_subprocess.call_count == 1
-    assert 'get' in mock_subprocess.call_args_list[0].args[0]
+        # Additional test to ensure correct initialization
+        mock_subprocess.reset_mock()
+        mock_subprocess.return_value = MagicMock(stdout='level=1')
+        assert manager.detect_motion() is True
+        # Check that only 'get' is called after initialization
+        assert mock_subprocess.call_count == 1
+        assert 'get' in mock_subprocess.call_args_list[0].args[0]
 
-    # Additional test to ensure correct initialization
-    mock_subprocess.reset_mock()
-    mock_subprocess.return_value = MagicMock(stdout='level=0')
-    assert manager.detect_motion() is False
-    # Check that only 'get' is called after initialization
-    assert mock_subprocess.call_count == 1
-    assert 'get' in mock_subprocess.call_args_list[0].args[0]
+        # Additional test to ensure correct initialization
+        mock_subprocess.reset_mock()
+        mock_subprocess.return_value = MagicMock(stdout='level=0')
+        assert manager.detect_motion() is False
+        # Check that only 'get' is called after initialization
+        assert mock_subprocess.call_count == 1
+        assert 'get' in mock_subprocess.call_args_list[0].args[0]
 
 @pytest.mark.skip(reason="Hardware-dependent test")
 def test_real_motion_detection():

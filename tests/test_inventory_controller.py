@@ -1,6 +1,9 @@
 import pytest
 import time
+from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import Mock, patch, MagicMock
+from pi_inventory_system.config_manager import create_config_manager
+from pi_inventory_system.database_manager import create_database_manager
 from pi_inventory_system.inventory_controller import InventoryController
 from pi_inventory_system.inventory_item import InventoryItem
 
@@ -71,7 +74,7 @@ def test_process_command_successful_remove(controller):
     """Test processing a successful remove command."""
     item = InventoryItem(item_name="chicken", quantity=1)
     controller.db.remove_item.return_value = True
-    controller._db_manager.get_current_quantity.return_value = 0
+    controller._db_manager.get_current_quantity.side_effect = [1, 0]
 
     with patch('pi_inventory_system.inventory_controller.interpret_command',
               return_value=("remove", item)), \
@@ -80,6 +83,55 @@ def test_process_command_successful_remove(controller):
         assert success
         assert feedback == "chicken has been removed from inventory."
         controller.db.remove_item.assert_called_with(item.item_name, item.quantity)
+
+
+def test_process_command_remove_missing_item(controller):
+    """Removing a missing item should not report a successful mutation."""
+    item = InventoryItem(item_name="chicken", quantity=1)
+    controller._db_manager.get_current_quantity.return_value = 0
+
+    with patch('pi_inventory_system.inventory_controller.interpret_command',
+              return_value=("remove", item)):
+        success, feedback = controller.process_command("remove chicken")
+        assert not success
+        assert feedback == "chicken is not in inventory."
+        controller.db.remove_item.assert_not_called()
+
+
+def test_process_command_success_when_display_refresh_fails(controller):
+    """A display error after the DB mutation should not report command failure."""
+    item = InventoryItem(item_name="chicken", quantity=1)
+    controller.db.add_item.return_value = True
+    controller._db_manager.get_current_quantity.return_value = 1
+
+    with patch('pi_inventory_system.inventory_controller.interpret_command',
+              return_value=("add", item)), \
+         patch('pi_inventory_system.inventory_controller.display_inventory',
+               side_effect=RuntimeError("display offline")):
+        success, feedback = controller.process_command("add chicken")
+        assert success
+        assert feedback == "chicken now has 1 in inventory."
+
+
+def test_process_command_from_executor_thread_updates_database(tmp_path):
+    """Production voice commands run in a worker thread and must be able to write SQLite."""
+    cfg = create_config_manager()
+    cfg._config['nlp']['enable_spacy'] = False
+    db = create_database_manager(cfg, db_path=str(tmp_path / "threaded.db"))
+    controller_instance = InventoryController(db_manager=db, display=None, config_manager=cfg)
+
+    try:
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            success, feedback = executor.submit(
+                controller_instance.process_command,
+                "add 1 salmon",
+            ).result(timeout=5)
+
+        assert success
+        assert feedback == "salmon now has 1 in inventory."
+        assert db.get_current_quantity("salmon") == 1
+    finally:
+        db.cleanup()
 
 
 def test_process_command_successful_undo(controller):

@@ -38,11 +38,16 @@ def run_startup_diagnostics(config_manager) -> Tuple[bool, bool, bool, object]:
     if motion_manager.is_supported():
         try:
             readings = [motion_manager.detect_motion() for _ in range(3)]
-            motion_sensor_ok = True
-            logging.info("Motion sensor initialized successfully")
-            logging.info(f"Initial motion sensor readings: {readings}")
+            if motion_manager.is_healthy():
+                motion_sensor_ok = True
+                logging.info("Motion sensor initialized successfully")
+                logging.info(f"Initial motion sensor readings: {readings}")
+            else:
+                logging.error(f"Motion sensor failed diagnostics: {motion_manager.last_error}")
         except Exception as e:
             logging.error(f"Motion sensor error: {e}")
+        finally:
+            motion_manager.cleanup()
     else:
         logging.warning("Motion sensor not supported on this platform")
 

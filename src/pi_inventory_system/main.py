@@ -6,11 +6,11 @@ import signal
 import threading
 import time
 import traceback
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Optional
 
 from .audio_feedback_manager import AudioFeedbackManager
-from .config_manager import get_default_config_manager
+from .config_manager import create_config_manager
 from .database_manager import create_database_manager
 from .diagnostics import run_startup_diagnostics
 from .display_manager import cleanup_display, initialize_display
@@ -27,7 +27,7 @@ class FridgePinventoryApp:
     """Main application orchestrator."""
 
     def __init__(self, config_path: Optional[str] = None, db_path: Optional[str] = None):
-        self.config_manager = get_default_config_manager()
+        self.config_manager = create_config_manager(config_path)
         self.db_manager = create_database_manager(self.config_manager, db_path=db_path)
 
         self._setup_logging()
@@ -45,6 +45,9 @@ class FridgePinventoryApp:
         self.shutdown_event = threading.Event()
 
         self._voice_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="voice")
+        self._voice_future: Optional[Future] = None
+        self._voice_started_at: Optional[float] = None
+        self._voice_timeout_logged = False
 
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
@@ -87,20 +90,45 @@ class FridgePinventoryApp:
             command = self.voice_manager.recognize_speech()
             if command and self.running:
                 self.logger.info(f"Command received: {command}")
-                _, feedback = self.controller.process_command(command)
+                success, feedback = self.controller.process_command(command)
                 self.logger.info(f"Command result: {feedback}")
-                if display_ok:
-                    self.controller.update_display_with_inventory()
+                if success:
+                    self.audio_feedback.output_confirmation(
+                        feedback or "Command executed successfully."
+                    )
+                else:
+                    self.audio_feedback.output_error(feedback or "Command failed.")
         except Exception as e:
             self.logger.error(f"Error handling voice command: {e}")
 
+    def _check_voice_future(self) -> bool:
+        """Return True when a voice task is still running."""
+        if self._voice_future is None:
+            return False
+
+        if self._voice_future.done():
+            try:
+                self._voice_future.result()
+            except Exception as e:
+                self.logger.error(f"Voice command task failed: {e}")
+            finally:
+                self._voice_future = None
+                self._voice_started_at = None
+                self._voice_timeout_logged = False
+            return False
+
+        if self._voice_started_at is not None:
+            elapsed = time.monotonic() - self._voice_started_at
+            if elapsed > VOICE_TIMEOUT_SECONDS and not self._voice_timeout_logged:
+                self.logger.warning("Voice command timed out")
+                self._voice_timeout_logged = True
+        return True
+
     def _kick_voice_command(self, display_ok: bool) -> None:
-        future = self._voice_executor.submit(self._handle_voice_command, display_ok)
-        try:
-            future.result(timeout=VOICE_TIMEOUT_SECONDS)
-        except FuturesTimeoutError:
-            self.logger.warning("Voice command timed out")
-            future.cancel()
+        if self._check_voice_future():
+            return
+        self._voice_started_at = time.monotonic()
+        self._voice_future = self._voice_executor.submit(self._handle_voice_command, display_ok)
 
     def run(self) -> None:
         if not self.initialize():
@@ -123,6 +151,8 @@ class FridgePinventoryApp:
 
             previous_mode = loop.mode
             while self.running and not self.shutdown_event.is_set():
+                self._check_voice_future()
+
                 if not motion_ok:
                     self.shutdown_event.wait(timeout=1.0)
                     continue

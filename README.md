@@ -10,7 +10,7 @@ An inventory management system for a chest freezer, built using a Raspberry Pi 5
 - USB microphone (for voice commands)
 
 ## Features
-- Voice command recognition with Google Speech-to-Text
+- Voice command recognition with offline Sphinx by default, with optional Google fallback
 - Smart item name recognition (handles variations like "chicken wings" vs "wings")
 - Visual feedback via high-resolution e-Paper display (800x480) with optimized grid layout
 - Fast display refresh (3.5s) with 4-level grayscale support
@@ -94,7 +94,7 @@ These instructions are for setting up a development environment on macOS or othe
 source .venv/bin/activate
 
 # Run the application
-python -m src.pi_inventory_system.main
+python -m pi_inventory_system.main
 ```
 
 ### On Development Machine (simulation mode)
@@ -103,7 +103,7 @@ python -m src.pi_inventory_system.main
 source .venv/bin/activate
 
 # Run the application
-python -m src.pi_inventory_system.main
+python -m pi_inventory_system.main
 ```
 
 The application will:
@@ -186,7 +186,7 @@ python -m pytest -m "not skip"
 
 ## Fallback Behavior
 - If text-to-speech is unavailable, falls back to console output
-- If audio playback is unavailable, falls back to console output
+- If audio playback is unavailable, logs the failure and continues without a sound
 - If running on non-Raspberry Pi hardware, simulates hardware interactions for testing
 
 ## License

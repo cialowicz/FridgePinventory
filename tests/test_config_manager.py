@@ -27,6 +27,21 @@ def test_env_override_bool(monkeypatch, tmp_path):
     assert cm.get("nlp", "enable_spacy") is False
 
 
+def test_env_override_wal_mode_remains_string(monkeypatch, tmp_path):
+    config_file = tmp_path / "c.yaml"
+    config_file.write_text("database_advanced:\n  wal_mode: WAL\n")
+    monkeypatch.setenv("FRIDGE_DATABASE_ADVANCED__WAL_MODE", "DELETE")
+    cm = create_config_manager(str(config_file))
+    assert cm.get("database_advanced", "wal_mode") == "DELETE"
+
+
+def test_empty_config_file_loads_as_empty_dict(tmp_path):
+    config_file = tmp_path / "empty.yaml"
+    config_file.write_text("")
+    cm = create_config_manager(str(config_file))
+    assert cm.get("missing", default="fallback") == "fallback"
+
+
 def test_missing_config_falls_back_to_defaults(tmp_path):
     cm = create_config_manager(str(tmp_path / "does-not-exist.yaml"))
     assert cm.get("system", "log_level") == "INFO"
