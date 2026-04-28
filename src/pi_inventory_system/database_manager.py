@@ -1,14 +1,11 @@
 # Simplified database manager for single-threaded Pi application
 
-import sqlite3
-import os
-import glob
 import logging
+import sqlite3
 import threading
-from typing import List, Optional, Any
-from datetime import datetime
-from pathlib import Path
 from contextlib import contextmanager
+from importlib import resources
+from typing import Any, List, Optional
 
 from .inventory_item import InventoryItem
 
@@ -78,62 +75,87 @@ class DatabaseManager:
         with self._lock:
             if self._initialized:
                 return
-            
+
             try:
                 conn = self._get_connection()
-                
-                cursor = conn.cursor()
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS migrations (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        migration_name TEXT NOT NULL UNIQUE,
-                        applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
-                cursor.close()
-                
                 self._run_migrations(conn)
-                
                 self._initialized = True
                 logger.info("Database initialized successfully")
-                    
             except Exception as e:
                 logger.error(f"Failed to initialize database: {e}")
                 raise
-    
-    def _run_migrations(self, conn: sqlite3.Connection):
-        """Run all pending migrations."""
-        current_dir = Path(__file__).parent
-        migrations_dir = current_dir.parent.parent / 'migrations'
-        
-        if not migrations_dir.exists():
-            logger.info("No migrations directory found")
-            return
-        
+
+    def _list_migrations(self):
+        """Return a sorted list of (name, sql_text) pairs from the package."""
+        pkg = resources.files(__package__).joinpath('migrations')
+        items = []
+        for entry in pkg.iterdir():
+            if entry.name.endswith('.sql'):
+                items.append((entry.name, entry.read_text()))
+        items.sort(key=lambda pair: pair[0])
+        return items
+
+    @staticmethod
+    def _split_sql_statements(script: str):
+        """Split a SQL script into complete statements, respecting BEGIN/END blocks."""
+        buffer = ''
+        for line in script.splitlines(keepends=True):
+            stripped = line.strip()
+            if not stripped or stripped.startswith('--'):
+                if buffer:
+                    buffer += line
+                continue
+            buffer += line
+            if sqlite3.complete_statement(buffer):
+                yield buffer.strip()
+                buffer = ''
+        leftover = buffer.strip()
+        if leftover:
+            yield leftover
+
+    def _ensure_migrations_table(self, conn: sqlite3.Connection) -> None:
         cursor = conn.cursor()
-        cursor.execute("SELECT migration_name FROM migrations")
-        applied_migrations = {row['migration_name'] for row in cursor.fetchall()}
-        cursor.close()
-        
-        migration_files = sorted(glob.glob(os.path.join(migrations_dir, "*.sql")))
-        for migration_file in migration_files:
-            migration_name = os.path.basename(migration_file)
-            if migration_name not in applied_migrations:
-                try:
-                    with self._transaction() as trans_conn, open(migration_file, 'r') as f:
-                        sql_script = f.read()
-                        trans_conn.executescript(sql_script)
-                        
-                        cursor = trans_conn.cursor()
-                        cursor.execute(
+        try:
+            cursor.execute(
+                """CREATE TABLE IF NOT EXISTS migrations (
+                       id INTEGER PRIMARY KEY AUTOINCREMENT,
+                       migration_name TEXT NOT NULL UNIQUE,
+                       applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                   )"""
+            )
+        finally:
+            cursor.close()
+
+    def _run_migrations(self, conn: sqlite3.Connection) -> None:
+        """Run all pending migrations atomically."""
+        self._ensure_migrations_table(conn)
+
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT migration_name FROM migrations")
+            applied = {row['migration_name'] for row in cursor.fetchall()}
+        finally:
+            cursor.close()
+
+        for name, sql_text in self._list_migrations():
+            if name in applied:
+                continue
+            try:
+                with self._transaction() as trans_conn:
+                    inner = trans_conn.cursor()
+                    try:
+                        for statement in self._split_sql_statements(sql_text):
+                            inner.execute(statement)
+                        inner.execute(
                             "INSERT INTO migrations (migration_name) VALUES (?)",
-                            (migration_name,)
+                            (name,),
                         )
-                        cursor.close()
-                    logger.info(f"Applied migration: {migration_name}")
-                except Exception as e:
-                    logger.error(f"Failed to apply migration {migration_name}: {e}")
-                    raise
+                    finally:
+                        inner.close()
+                logger.info(f"Applied migration: {name}")
+            except Exception as e:
+                logger.error(f"Failed to apply migration {name}: {e}")
+                raise
     
     def get_current_quantity(self, item_name: str) -> int:
         """Get the current quantity of an item."""

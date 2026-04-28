@@ -37,3 +37,6 @@ pythonpath = ["src"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/pi_inventory_system"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/pi_inventory_system/migrations" = "pi_inventory_system/migrations"
