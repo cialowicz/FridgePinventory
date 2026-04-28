@@ -3,7 +3,7 @@ from typing import List, Tuple, Optional
 from .database_manager import get_default_db_manager
 from .command_processor import interpret_command
 from .display_manager import display_inventory
-from .item_normalizer import ITEM_SYNONYMS, normalize_item_name
+from .item_normalizer import normalize_item_name
 from .inventory_item import InventoryItem
 from .exceptions import InventoryError, CommandProcessingError
 
@@ -13,7 +13,7 @@ class InventoryController:
     
     def __init__(self, db_manager=None, display=None, config_manager=None):
         """Initialize the inventory controller.
-        
+
         Args:
             db_manager: Database manager instance. If None, uses default.
             display: Display instance. If None, display features will be disabled.
@@ -22,7 +22,8 @@ class InventoryController:
         self.display = display
         self.config_manager = config_manager
         self._command_history: List[Tuple[str, InventoryItem]] = []
-        
+        self._last_rendered_inventory: Optional[List[Tuple[str, int]]] = None
+
         if self.display:
             logging.info("Display instance provided to InventoryController")
         else:
@@ -81,28 +82,25 @@ class InventoryController:
             return False, "An unexpected error occurred. Please try again."
 
     def update_display_with_inventory(self):
-        """Fetch inventory, merge with all categories, and update the display."""
+        """Fetch inventory and refresh the display. Only items with quantity>0
+        are shown; if the inventory is unchanged since the last render, the
+        ~3.5s e-paper refresh is skipped."""
         if not self.display:
             return
         try:
-            # Get the actual inventory from the database and convert to a dict for easy lookup
-            db_inventory_list = self._db_manager.get_inventory()
-            db_inventory = dict(db_inventory_list)
+            db_inventory_list = sorted(self._db_manager.get_inventory())
+            display_list = [(name, qty) for name, qty in db_inventory_list if qty > 0]
 
-            # Get all possible item categories from the normalizer
-            all_categories = list(ITEM_SYNONYMS.keys())
+            if display_list == self._last_rendered_inventory:
+                logging.debug("Inventory unchanged since last render; skipping refresh")
+                return
 
-            # Create a comprehensive list, showing 0 for items not in the database inventory
-            display_list = []
-            for category in sorted(all_categories):
-                quantity = db_inventory.get(category, 0)
-                display_list.append((category, quantity))
-
-            # Call the display function with the complete, sorted list
             display_inventory(self.display, display_list, self.config_manager)
+            self._last_rendered_inventory = display_list
             logging.info(f"Updated display with {len(display_list)} items.")
         except Exception as e:
             logging.error(f"Failed to update display with inventory: {e}")
+            raise
     
     def _generate_feedback(self, command_type: str, item: Optional[InventoryItem], new_quantity: Optional[int], undo_item_name: Optional[str] = None) -> str:
         """Generate feedback message based on command type and current inventory.

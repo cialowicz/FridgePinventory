@@ -122,6 +122,7 @@ class WaveshareDisplay:
         self._display = None
         self._initialized = False
         self._epd_instance = None
+        self._is_mock = False
         if WAVESHARE_AVAILABLE and epd_module:
             try:
                 logger.info(f"Using Waveshare driver: {epd_driver_name}")
@@ -143,15 +144,17 @@ class WaveshareDisplay:
         return self.init_display()
     
     def init_display(self):
-        """Initialize the display hardware."""
+        """Initialize the display hardware. Returns True on real hardware
+        success; False if we fell back to a mock so callers can branch."""
         if self._initialized:
-            return True
-            
+            return not self._is_mock
+
         if not self._epd_instance:
             logger.warning("Waveshare library not available, using mock display")
             self._display = MockDisplay()
+            self._is_mock = True
             self._initialized = True
-            return True
+            return False
             
         try:
             logger.info("Initializing Waveshare 3.97\" display...")
@@ -197,8 +200,8 @@ class WaveshareDisplay:
 
         except Exception as e:
             logger.error(f"Failed to initialize Waveshare display: {e}")
-            # Fall back to mock display
             self._display = MockDisplay()
+            self._is_mock = True
             self._initialized = True
             return False
     

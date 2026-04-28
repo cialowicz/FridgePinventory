@@ -12,6 +12,7 @@ def mock_config_manager():
     config_manager.get_layout_config.return_value = {}
     config_manager.get_display_config.return_value = {'colors': {}}
     config_manager.get_font_config.return_value = {'path': 'dummy_font.ttf'}
+    config_manager.get.return_value = {}
     return config_manager
 
 def test_is_display_supported(mock_config_manager):
