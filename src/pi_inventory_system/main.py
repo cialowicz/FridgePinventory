@@ -84,6 +84,9 @@ class FridgePinventoryApp:
 
         if audio_ok:
             self.audio_feedback.play_sound('success')
+        # Diagnostics may have tripped a transient failure or two during the
+        # WAV smoke-test; re-enable both breakers so runtime feedback is heard.
+        self.audio_feedback.reset_circuit_breakers()
         self.logger.info("FridgePinventory initialization complete")
         return True
 
@@ -122,9 +125,15 @@ class FridgePinventoryApp:
                 success, feedback = self.controller.process_command(command)
                 self.logger.info(f"Command result: {feedback}")
                 if success:
-                    self.audio_feedback.output_confirmation(
-                        feedback or "Command executed successfully."
-                    )
+                    # Speak the confirmation, but choose the chime based on the
+                    # resulting state: removed-from-inventory uses the warning
+                    # tone so users distinguish "added/updated" from "now empty".
+                    spoken = feedback or "Command executed successfully."
+                    if feedback and "removed from inventory" in feedback:
+                        self.audio_feedback.speak(spoken)
+                        self.audio_feedback.play_sound('warning')
+                    else:
+                        self.audio_feedback.output_confirmation(spoken)
                 else:
                     self.audio_feedback.output_error(feedback or "Command failed.")
         except Exception as e:

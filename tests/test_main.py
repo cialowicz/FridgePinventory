@@ -127,6 +127,31 @@ def test_voice_timeout_retires_worker(app_context):
     assert app._owned_voice_manager is not old_voice
 
 
+def test_handle_voice_command_uses_warning_chime_on_removal(app_context):
+    """A successful command that left the item at 0 should NOT play the
+    success chime — that confuses 'I added it' with 'I emptied it'."""
+    app, _, _, _, _, _, voice, audio = app_context
+    app.running = True
+    app.controller = MagicMock()
+    voice.recognize_speech.return_value = "remove all salmon"
+    app.controller.process_command.return_value = (
+        True, "salmon has been removed from inventory.")
+
+    app._handle_voice_command(display_ok=True)
+
+    audio.speak.assert_called_once_with("salmon has been removed from inventory.")
+    audio.play_sound.assert_called_once_with('warning')
+    audio.output_confirmation.assert_not_called()
+
+
+def test_initialize_resets_audio_circuit_breakers(app_context):
+    app, _, _, _, _, _, _, audio = app_context
+    with patch('pi_inventory_system.main.run_startup_diagnostics',
+               return_value=(False, True, True, None)):
+        app.initialize()
+    audio.reset_circuit_breakers.assert_called_once()
+
+
 def test_voice_executor_after_retire_runs_followup_command(app_context):
     """After a retire, a freshly submitted voice command must complete on the new executor."""
     app, _, _, _, _, _, old_voice, audio = app_context

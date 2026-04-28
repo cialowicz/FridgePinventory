@@ -123,6 +123,19 @@ class AudioFeedbackManager:
         if self._sound_failures >= self._max_failures:
             self._sound_disabled = True
             self.logger.error(f"Sound playback disabled after {self._max_failures} failures")
+
+    def reset_circuit_breakers(self) -> None:
+        """Re-enable both TTS and sound paths after a transient failure burst.
+
+        Called after startup diagnostics so a flaky boot-time WAV play does
+        not silence the rest of the session.
+        """
+        with self._lock, self._sound_lock:
+            self._tts_failures = 0
+            self._tts_disabled = False
+            self._sound_failures = 0
+            self._sound_disabled = False
+            self.logger.info("Audio circuit breakers reset")
     
     def _start_tts_worker(self):
         """Start the TTS worker thread."""
