@@ -38,6 +38,10 @@ class VoiceRecognitionManager:
         self._initialization_failed = False
         self._retry_count = 0
         self._last_initialization_failure_at: Optional[float] = None
+        # First-time-only setup flags so the hot path skips device enumeration
+        # and ambient-noise recalibration that already happened on cold start.
+        self._pyaudio_logged = False
+        self._microphone_calibrated = False
     
     def _initialize_recognizer(self) -> bool:
         """Initialize the speech recognizer."""
@@ -70,13 +74,17 @@ class VoiceRecognitionManager:
             return False
     
     def _initialize_pyaudio(self):
-        """Initialize PyAudio for device enumeration (optional)."""
+        """Initialize PyAudio for device enumeration (optional). Logs the
+        device list only on the first successful init — subsequent calls are
+        no-ops on the hot path."""
         if self._pyaudio_instance is not None or pyaudio is None:
             return
-        
+
         try:
             self._pyaudio_instance = pyaudio.PyAudio()
-            self._log_audio_devices()
+            if not self._pyaudio_logged:
+                self._log_audio_devices()
+                self._pyaudio_logged = True
         except Exception as e:
             self.logger.warning(f"PyAudio initialization failed (non-fatal): {e}")
             self._pyaudio_instance = None
@@ -127,12 +135,17 @@ class VoiceRecognitionManager:
                 self._microphone = sr.Microphone()
                 self.logger.info("Using default system microphone")
             
-            # Test the microphone
-            with self._microphone as source:
-                if self._recognizer:
-                    self._recognizer.adjust_for_ambient_noise(source, duration=1)
-            
-            self.logger.info("Microphone initialized and calibrated")
+            # Run the 1-second ambient-noise calibration only when the
+            # microphone object was just created — repeated calibration on
+            # every voice command added ~1.5s of latency to each recognition.
+            if not self._microphone_calibrated:
+                with self._microphone as source:
+                    if self._recognizer:
+                        self._recognizer.adjust_for_ambient_noise(source, duration=1)
+                self._microphone_calibrated = True
+                self.logger.info("Microphone initialized and calibrated")
+            else:
+                self.logger.debug("Microphone re-attached; skipping ambient recal")
             self._retry_count = 0  # Reset on success
             self._initialization_failed = False
             self._last_initialization_failure_at = None
@@ -140,10 +153,12 @@ class VoiceRecognitionManager:
             
         except OSError as e:
             self.logger.error(f"Microphone device not available: {e}")
+            self._microphone_calibrated = False
             self._handle_initialization_failure()
             return False
         except Exception as e:
             self.logger.error(f"Failed to initialize microphone: {e}")
+            self._microphone_calibrated = False
             self._handle_initialization_failure()
             return False
     
@@ -252,7 +267,8 @@ class VoiceRecognitionManager:
             return None
         except OSError as e:
             self.logger.error(f"Microphone error: {e}")
-            self._microphone = None  # Force re-initialization
+            self._microphone = None  # Force re-initialization on next call.
+            self._microphone_calibrated = False
             return None
         except Exception as e:
             self.logger.error(f"Error capturing audio: {e}")
@@ -325,6 +341,8 @@ class VoiceRecognitionManager:
                 self._recognizer = None
                 self._initialization_failed = False
                 self._retry_count = 0
+                self._microphone_calibrated = False
+                self._pyaudio_logged = False
                 
                 self.logger.info("Audio cleanup completed")
                 

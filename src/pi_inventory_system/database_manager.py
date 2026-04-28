@@ -210,6 +210,13 @@ class DatabaseManager:
                 (item_name, quantity)
             )
 
+    def _next_action_id(self, cursor: sqlite3.Cursor) -> int:
+        """Allocate the next action_id. action_ids are monotonic per process
+        and grouped by user-visible action — every history row written inside
+        a single mutator call shares the same action_id and is undone together."""
+        cursor.execute("SELECT COALESCE(MAX(action_id), 0) FROM inventory_history")
+        return int(cursor.fetchone()[0]) + 1
+
     def _record_history(
         self,
         cursor: sqlite3.Cursor,
@@ -217,12 +224,13 @@ class DatabaseManager:
         previous_quantity: int,
         new_quantity: int,
         operation_type: str,
+        action_id: int,
     ) -> None:
         cursor.execute(
-            """INSERT INTO inventory_history 
-               (item_name, previous_quantity, new_quantity, operation_type)
-               VALUES (?, ?, ?, ?)""",
-            (item_name, previous_quantity, new_quantity, operation_type)
+            """INSERT INTO inventory_history
+               (item_name, previous_quantity, new_quantity, operation_type, action_id)
+               VALUES (?, ?, ?, ?, ?)""",
+            (item_name, previous_quantity, new_quantity, operation_type, action_id)
         )
     
     def add_item(self, item_name: str, quantity: int) -> bool:
@@ -234,8 +242,10 @@ class DatabaseManager:
                     try:
                         current = self.get_current_quantity(item_name)
                         new_quantity = current + quantity
+                        action_id = self._next_action_id(cursor)
                         self._set_inventory_quantity(cursor, item_name, new_quantity)
-                        self._record_history(cursor, item_name, current, new_quantity, 'add')
+                        self._record_history(cursor, item_name, current, new_quantity,
+                                             'add', action_id)
                     finally:
                         cursor.close()
                 return True
@@ -255,8 +265,10 @@ class DatabaseManager:
                             return False
 
                         new_quantity = max(0, current - quantity)
+                        action_id = self._next_action_id(cursor)
                         self._set_inventory_quantity(cursor, item_name, new_quantity)
-                        self._record_history(cursor, item_name, current, new_quantity, 'remove')
+                        self._record_history(cursor, item_name, current, new_quantity,
+                                             'remove', action_id)
                     finally:
                         cursor.close()
                 return True
@@ -272,8 +284,10 @@ class DatabaseManager:
                     cursor = conn.cursor()
                     try:
                         current = self.get_current_quantity(item_name)
+                        action_id = self._next_action_id(cursor)
                         self._set_inventory_quantity(cursor, item_name, quantity)
-                        self._record_history(cursor, item_name, current, quantity, 'set')
+                        self._record_history(cursor, item_name, current, quantity,
+                                             'set', action_id)
                     finally:
                         cursor.close()
                 return True
@@ -282,32 +296,66 @@ class DatabaseManager:
                 raise DatabaseError(str(e)) from e
     
     def undo_last_change(self) -> tuple[bool, Optional[str]]:
-        """Undo the last inventory change."""
+        """Undo the most recent action atomically.
+
+        Reverts every history row sharing the latest action_id (today every
+        mutator writes one row, but a future bulk operation will write many).
+        Returns (True, item_name_of_first_row) on success — the spoken
+        confirmation message uses the primary item name.
+        """
         with self._lock:
             try:
                 with self._transaction() as conn:
                     cursor = conn.cursor()
-                    cursor.execute(
-                        """SELECT * FROM inventory_history 
-                           ORDER BY id DESC LIMIT 1"""
-                    )
-                    last_change = cursor.fetchone()
-                    
-                    if not last_change:
-                        return False, None
-                    
-                    history_id = last_change['id']
-                    item_name = last_change['item_name']
-                    previous_quantity = last_change['previous_quantity']
-                    
-                    self._set_inventory_quantity(cursor, item_name, previous_quantity)
-                    
-                    cursor.execute(
-                        "DELETE FROM inventory_history WHERE id = ?",
-                        (history_id,)
-                    )
-                    cursor.close()
-                return True, item_name
+                    try:
+                        cursor.execute(
+                            "SELECT MAX(action_id) FROM inventory_history "
+                            "WHERE action_id > 0"
+                        )
+                        row = cursor.fetchone()
+                        latest_action_id = row[0] if row else None
+
+                        if latest_action_id is None or latest_action_id == 0:
+                            # Pre-action_id rows (legacy) or empty history:
+                            # fall back to single-row undo by id.
+                            cursor.execute(
+                                "SELECT id, item_name, previous_quantity "
+                                "FROM inventory_history ORDER BY id DESC LIMIT 1"
+                            )
+                            legacy = cursor.fetchone()
+                            if not legacy:
+                                return False, None
+                            self._set_inventory_quantity(
+                                cursor, legacy['item_name'], legacy['previous_quantity'])
+                            cursor.execute(
+                                "DELETE FROM inventory_history WHERE id = ?",
+                                (legacy['id'],),
+                            )
+                            return True, legacy['item_name']
+
+                        cursor.execute(
+                            "SELECT id, item_name, previous_quantity "
+                            "FROM inventory_history WHERE action_id = ? "
+                            "ORDER BY id ASC",
+                            (latest_action_id,),
+                        )
+                        rows = cursor.fetchall()
+                        if not rows:
+                            return False, None
+
+                        # Revert in reverse insertion order so dependent
+                        # writes within the action unwind cleanly.
+                        for row in reversed(rows):
+                            self._set_inventory_quantity(
+                                cursor, row['item_name'], row['previous_quantity'])
+
+                        cursor.execute(
+                            "DELETE FROM inventory_history WHERE action_id = ?",
+                            (latest_action_id,),
+                        )
+                        return True, rows[0]['item_name']
+                    finally:
+                        cursor.close()
             except sqlite3.Error as e:
                 logger.error(f"Database error in undo_last_change: {e}")
                 raise DatabaseError(str(e)) from e

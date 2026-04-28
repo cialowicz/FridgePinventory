@@ -34,6 +34,10 @@ COMMAND_WORDS_TO_STRIP = tuple(sorted(
     key=len,
     reverse=True,
 ))
+# Pre-compiled alternation: one re.sub per item-name scrub instead of N.
+_COMMAND_WORDS_RE = re.compile(
+    r"\b(?:" + "|".join(re.escape(w) for w in COMMAND_WORDS_TO_STRIP) + r")\b"
+)
 ITEM_FILLER_WORDS = {'of', 'the'}
 
 DEFAULT_QUANTITIES = {
@@ -214,9 +218,7 @@ def _extract_add_remove_arguments(command_text: str, command_type: str, config_m
 
 
 def _scrub_item_name(item_name: str) -> str:
-    for cmd in COMMAND_WORDS_TO_STRIP:
-        item_name = re.sub(rf"\b{cmd}\b", "", item_name)
-    return " ".join(item_name.split())
+    return " ".join(_COMMAND_WORDS_RE.sub("", item_name).split())
 
 
 def interpret_command(command_text: str, config_manager) -> Tuple[Optional[str], Optional[InventoryItem]]:
