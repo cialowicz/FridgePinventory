@@ -232,9 +232,20 @@ class DatabaseManager:
                VALUES (?, ?, ?, ?, ?)""",
             (item_name, previous_quantity, new_quantity, operation_type, action_id)
         )
+
+    @staticmethod
+    def _validate_quantity(quantity: int, *, allow_zero: bool) -> None:
+        """Enforce storage-layer quantity invariants for public mutators."""
+        if not isinstance(quantity, int):
+            raise ValueError("quantity must be an integer")
+        if quantity < 0:
+            raise ValueError("quantity cannot be negative")
+        if quantity == 0 and not allow_zero:
+            raise ValueError("quantity must be greater than zero")
     
     def add_item(self, item_name: str, quantity: int) -> bool:
         """Add items to inventory. Raises DatabaseError on storage failure."""
+        self._validate_quantity(quantity, allow_zero=False)
         with self._lock:
             try:
                 with self._transaction() as conn:
@@ -255,6 +266,7 @@ class DatabaseManager:
     
     def remove_item(self, item_name: str, quantity: int) -> bool:
         """Remove items from inventory."""
+        self._validate_quantity(quantity, allow_zero=False)
         with self._lock:
             try:
                 with self._transaction() as conn:
@@ -278,6 +290,7 @@ class DatabaseManager:
     
     def set_item(self, item_name: str, quantity: int) -> bool:
         """Set the quantity of an item."""
+        self._validate_quantity(quantity, allow_zero=True)
         with self._lock:
             try:
                 with self._transaction() as conn:

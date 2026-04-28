@@ -244,6 +244,9 @@ def interpret_command(command_text: str, config_manager) -> Tuple[Optional[str],
 
     if item_name:
         item_name = _scrub_item_name(item_name)
+    if quantity is None and command_type == "set":
+        logging.warning(f"Could not extract set quantity from: {command_text}")
+        return command_type, None
     if quantity is None:
         quantity = 1
     if not item_name:

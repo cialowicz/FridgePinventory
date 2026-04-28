@@ -34,6 +34,22 @@ def test_play_sound_returns_false_when_unknown_type(cfg):
         assert manager.play_sound('rocketlaunch') is False
 
 
+def test_warning_sound_falls_back_to_error_sound(cfg, tmp_path):
+    error_sound = tmp_path / "error.wav"
+    error_sound.write_bytes(b"RIFF")
+    cfg.get_audio_config.return_value = {
+        'feedback_sounds': {'error_sound': str(error_sound)},
+        'text_to_speech': {'rate': 150, 'volume': 0.9, 'voice_id': None},
+    }
+
+    with patch('pi_inventory_system.audio_feedback_manager.PYTTSX3_AVAILABLE', False), \
+         patch('pi_inventory_system.audio_feedback_manager.SIMPLEAUDIO_AVAILABLE', True), \
+         patch('pi_inventory_system.audio_feedback_manager._play_wav_file') as play_wav:
+        manager = AudioFeedbackManager(config_manager=cfg)
+        assert manager.play_sound('warning') is True
+        play_wav.assert_called_once_with(str(error_sound))
+
+
 def test_play_sound_returns_false_when_no_backend(cfg):
     with patch('pi_inventory_system.audio_feedback_manager.PYTTSX3_AVAILABLE', False), \
          patch('pi_inventory_system.audio_feedback_manager.SIMPLEAUDIO_AVAILABLE', False), \

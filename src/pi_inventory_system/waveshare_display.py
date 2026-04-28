@@ -236,7 +236,7 @@ class WaveshareDisplay:
             
         if not self._display:
             logger.warning("No display available")
-            return
+            raise RuntimeError("No display available")
             
         try:
             # Ensure image is correct size
@@ -266,6 +266,7 @@ class WaveshareDisplay:
             
         except Exception as e:
             logger.error(f"Error displaying image: {e}")
+            raise
     
     def set_image(self, image: Image.Image):
         """Set image for display (compatibility with old API)."""

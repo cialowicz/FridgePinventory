@@ -2,7 +2,9 @@
 
 import pytest
 from unittest.mock import patch, MagicMock
+from PIL import Image
 import pi_inventory_system.display_manager
+from pi_inventory_system.waveshare_display import WaveshareDisplay
 
 @pytest.fixture
 def mock_config_manager():
@@ -95,6 +97,19 @@ def test_display_text_no_display(mock_config_manager):
     """Test text display when no display is available."""
     result = pi_inventory_system.display_manager.display_text(None, "Test Message", mock_config_manager)
     assert result is False
+
+
+def test_waveshare_display_image_propagates_hardware_failure():
+    display = WaveshareDisplay.__new__(WaveshareDisplay)
+    display._initialized = True
+    display._display = MagicMock()
+    display._display.getbuffer_4Gray.return_value = []
+    display._display.display_4GRAY.side_effect = RuntimeError("panel busy")
+
+    image = Image.new("L", (display.WIDTH, display.HEIGHT), 255)
+
+    with pytest.raises(RuntimeError, match="panel busy"):
+        display.display_image(image)
 
 def test_lozenge_border_color():
     """Test lozenge border color changes based on quantity."""

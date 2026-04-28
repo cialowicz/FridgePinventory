@@ -65,6 +65,18 @@ def test_set_zero_deletes_row(db_manager_instance):
     assert db_manager_instance.get_current_quantity("steak") == 0
 
 
+@pytest.mark.parametrize("method,args", [
+    ("add_item", ("salmon", -1)),
+    ("add_item", ("salmon", 0)),
+    ("remove_item", ("salmon", -1)),
+    ("remove_item", ("salmon", 0)),
+    ("set_item", ("salmon", -1)),
+])
+def test_mutators_reject_invalid_quantities(db_manager_instance, method, args):
+    with pytest.raises(ValueError):
+        getattr(db_manager_instance, method)(*args)
+
+
 def test_remove_missing_item_is_noop(db_manager_instance):
     assert db_manager_instance.remove_item("salmon", 1) is False
     conn = db_manager_instance._get_connection()

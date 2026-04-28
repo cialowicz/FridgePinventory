@@ -28,6 +28,16 @@ def test_set_command(mock_config_manager):
     assert command_type == "set"
     assert item == InventoryItem(item_name="ice cream", quantity=5)
 
+
+@pytest.mark.parametrize("command", [
+    "set salmon to many",
+    "set salmon to",
+])
+def test_set_command_requires_explicit_quantity(command, mock_config_manager):
+    command_type, item = interpret_command(command, mock_config_manager)
+    assert command_type == "set"
+    assert item is None
+
 def test_undo_command(mock_config_manager):
     command_type, item = interpret_command("Undo", mock_config_manager)
     assert command_type == "undo"

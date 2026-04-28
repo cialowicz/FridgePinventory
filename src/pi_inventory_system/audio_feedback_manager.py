@@ -225,7 +225,10 @@ class AudioFeedbackManager:
             sound_map = {
                 'success': sound_config.get('success_sound', 'sounds/success.wav'),
                 'error': sound_config.get('error_sound', 'sounds/error.wav'),
-                'warning': sound_config.get('warning_sound', 'sounds/warning.wav'),
+                'warning': sound_config.get(
+                    'warning_sound',
+                    sound_config.get('error_sound', 'sounds/error.wav'),
+                ),
             }
             sound_file = sound_map.get(sound_type)
             if not sound_file:

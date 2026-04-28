@@ -6,7 +6,6 @@ import signal
 import threading
 import time
 import traceback
-from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Optional
 
 from .audio_feedback_manager import AudioFeedbackManager
@@ -21,6 +20,49 @@ from .voice_recognition_manager import VoiceRecognitionManager
 
 
 VOICE_TIMEOUT_SECONDS = 15
+MAX_ORPHANED_VOICE_TASKS = 2
+
+
+class _VoiceTask:
+    """Small daemon-thread task wrapper for voice recognition work.
+
+    ThreadPoolExecutor uses non-daemon workers that Python joins at process
+    shutdown. That is the wrong failure mode for microphone APIs that may hang,
+    so voice work runs in an app-owned daemon thread that can be orphaned after
+    timeout without blocking process exit.
+    """
+
+    def __init__(self, target, *args):
+        self._done = threading.Event()
+        self._exception: Optional[BaseException] = None
+        self._result = None
+        self._thread = threading.Thread(
+            target=self._run,
+            args=(target, args),
+            name="voice-command",
+            daemon=True,
+        )
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def _run(self, target, args) -> None:
+        try:
+            self._result = target(*args)
+        except BaseException as e:
+            self._exception = e
+        finally:
+            self._done.set()
+
+    def done(self) -> bool:
+        return self._done.is_set()
+
+    def result(self, timeout: Optional[float] = None):
+        if not self._done.wait(timeout):
+            raise TimeoutError("voice task did not finish")
+        if self._exception:
+            raise self._exception
+        return self._result
 
 
 class FridgePinventoryApp:
@@ -44,10 +86,11 @@ class FridgePinventoryApp:
         self.running = False
         self.shutdown_event = threading.Event()
 
-        self._voice_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="voice")
-        self._voice_future: Optional[Future] = None
+        self._voice_future: Optional[_VoiceTask] = None
         self._voice_started_at: Optional[float] = None
         self._voice_timeout_logged = False
+        self._orphaned_voice_tasks: list[_VoiceTask] = []
+        self._voice_disabled = False
         # Bound copies of the manager triple submitted with each voice task —
         # protects an in-flight task from a mid-flight reset_voice_worker swap.
         self._owned_voice_manager = self.voice_manager
@@ -168,38 +211,62 @@ class FridgePinventoryApp:
         """Retire a stuck voice worker so subsequent commands can run.
 
         The blocked task likely holds the microphone open inside
-        ``recognizer.listen``; we shut down the old executor (no wait, since
-        joining would block forever) and best-effort the old manager's cleanup
-        before swapping in fresh ones. The in-flight task is now orphaned
-        from this app instance — `_handle_voice_command` checks
+        ``recognizer.listen``. Python cannot kill that thread, so the in-flight
+        daemon task is orphaned from this app instance; `_handle_voice_command` checks
         ``voice_manager is self._owned_voice_manager`` and bails out instead
-        of firing audio cues from beyond the grave.
+        of firing audio cues from beyond the grave. We cap live orphaned tasks
+        so repeated backend hangs disable voice instead of spawning forever.
         """
-        if self._voice_future:
-            self._voice_future.cancel()
-        old_executor = self._voice_executor
+        if self._voice_future and not self._voice_future.done():
+            self._orphaned_voice_tasks.append(self._voice_future)
         old_manager = self.voice_manager
-        old_executor.shutdown(wait=False, cancel_futures=True)
+        self._owned_voice_manager = None
         try:
             old_manager.cleanup()
         except Exception as e:
             self.logger.warning(f"Old voice manager cleanup failed: {e}")
 
-        self.voice_manager = VoiceRecognitionManager(config_manager=self.config_manager)
-        self._owned_voice_manager = self.voice_manager
-        self._voice_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="voice")
         self._voice_future = None
         self._voice_started_at = None
         self._voice_timeout_logged = False
+        self._prune_orphaned_voice_tasks()
+        if len(self._orphaned_voice_tasks) >= MAX_ORPHANED_VOICE_TASKS:
+            self._voice_disabled = True
+            self._owned_voice_manager = None
+            self.logger.error("Voice input disabled after repeated recognition timeouts")
+            return
+
+        self.voice_manager = VoiceRecognitionManager(config_manager=self.config_manager)
+        self._owned_voice_manager = self.voice_manager
+        self._voice_disabled = False
+
+    def _prune_orphaned_voice_tasks(self) -> None:
+        self._orphaned_voice_tasks = [
+            task for task in self._orphaned_voice_tasks if not task.done()
+        ]
+
+    def _restore_voice_worker_if_available(self) -> None:
+        if not self._voice_disabled:
+            return
+        self._prune_orphaned_voice_tasks()
+        if len(self._orphaned_voice_tasks) >= MAX_ORPHANED_VOICE_TASKS:
+            return
+        self.voice_manager = VoiceRecognitionManager(config_manager=self.config_manager)
+        self._owned_voice_manager = self.voice_manager
+        self._voice_disabled = False
+        self.logger.info("Voice input re-enabled after orphaned task completed")
 
     def _kick_voice_command(self) -> None:
+        self._restore_voice_worker_if_available()
+        if self._voice_disabled:
+            self.logger.warning("Voice input disabled; skipping voice command")
+            return
         if self._check_voice_future():
             return
         self._voice_started_at = time.monotonic()
         bound_manager = self.voice_manager
-        self._voice_future = self._voice_executor.submit(
-            self._handle_voice_command, bound_manager,
-        )
+        self._voice_future = _VoiceTask(self._handle_voice_command, bound_manager)
+        self._voice_future.start()
 
     def run(self) -> None:
         if not self.initialize():
@@ -270,7 +337,6 @@ class FridgePinventoryApp:
         self.running = False
 
         cleanup_steps = [
-            ("voice executor", lambda: self._voice_executor.shutdown(wait=False, cancel_futures=True)),
             ("motion manager", self.motion_manager.cleanup),
             ("voice manager", self.voice_manager.cleanup),
             ("audio feedback", self.audio_feedback.cleanup),

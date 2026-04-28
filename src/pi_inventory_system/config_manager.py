@@ -88,7 +88,8 @@ class ConfigManager:
                 },
                 'feedback_sounds': {
                     'success_sound': 'sounds/success.wav',
-                    'error_sound': 'sounds/error.wav'
+                    'error_sound': 'sounds/error.wav',
+                    'warning_sound': 'sounds/error.wav'
                 }
             },
             'commands': {

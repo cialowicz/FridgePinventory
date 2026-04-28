@@ -3,7 +3,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from pi_inventory_system.main import VOICE_TIMEOUT_SECONDS, FridgePinventoryApp
+from pi_inventory_system.main import (
+    MAX_ORPHANED_VOICE_TASKS,
+    VOICE_TIMEOUT_SECONDS,
+    FridgePinventoryApp,
+)
 
 
 @pytest.fixture
@@ -108,23 +112,36 @@ def test_kick_voice_command_does_not_block_motion_loop(app_context):
 
 def test_voice_timeout_retires_worker(app_context):
     app, _, _, _, _, _, old_voice, _ = app_context
-    old_executor = MagicMock()
     future = MagicMock()
     future.done.return_value = False
-    app._voice_executor = old_executor
     app._voice_future = future
     app._voice_started_at = time.monotonic() - VOICE_TIMEOUT_SECONDS - 1
 
     assert app._check_voice_future() is False
 
-    future.cancel.assert_called_once()
-    old_executor.shutdown.assert_called_once_with(wait=False, cancel_futures=True)
     old_voice.cleanup.assert_called_once()
     assert app._voice_future is None
+    assert future in app._orphaned_voice_tasks
     # The fresh worker is functional and is the new owned manager.
-    assert app._voice_executor is not old_executor
     assert app._owned_voice_manager is app.voice_manager
     assert app._owned_voice_manager is not old_voice
+    assert app._voice_disabled is False
+
+
+def test_voice_timeout_disables_after_orphan_cap(app_context):
+    app, _, _, _, _, _, _, _ = app_context
+
+    for _ in range(MAX_ORPHANED_VOICE_TASKS):
+        future = MagicMock()
+        future.done.return_value = False
+        app._voice_future = future
+        app._voice_started_at = time.monotonic() - VOICE_TIMEOUT_SECONDS - 1
+
+        assert app._check_voice_future() is False
+
+    assert len(app._orphaned_voice_tasks) == MAX_ORPHANED_VOICE_TASKS
+    assert app._voice_disabled is True
+    assert app._owned_voice_manager is None
 
 
 def test_handle_voice_command_uses_warning_chime_on_removal(app_context):
@@ -152,8 +169,8 @@ def test_initialize_resets_audio_circuit_breakers(app_context):
     audio.reset_circuit_breakers.assert_called_once()
 
 
-def test_voice_executor_after_retire_runs_followup_command(app_context):
-    """After a retire, a freshly submitted voice command must complete on the new executor."""
+def test_voice_task_after_retire_runs_followup_command(app_context):
+    """After a retire, a freshly submitted voice command must complete."""
     app, _, _, _, _, _, old_voice, audio = app_context
     app.controller = MagicMock()
     app.running = True
