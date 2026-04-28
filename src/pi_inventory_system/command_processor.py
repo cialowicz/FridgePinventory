@@ -1,13 +1,12 @@
-# Module for processing commands
+"""Voice-command interpretation: text -> (command_type, InventoryItem)."""
 
-import re
 import logging
-from typing import Tuple, Optional, Dict, List
-from .item_normalizer import normalize_item_name
-from .inventory_item import InventoryItem
-from .exceptions import CommandProcessingError
+import re
+from typing import Optional, Tuple
 
-# Safe import of word2number
+from .inventory_item import InventoryItem
+from .item_normalizer import normalize_item_name
+
 try:
     from word2number import w2n
     W2N_AVAILABLE = True
@@ -15,252 +14,182 @@ except ImportError:
     W2N_AVAILABLE = False
     logging.warning("word2number not available, number word parsing limited")
 
-# Make spaCy optional and lazy-load the model when first needed
 try:
     import spacy  # type: ignore
 except Exception:
     spacy = None  # type: ignore
 
-nlp = None
+_nlp = None
+_nlp_load_attempted = False
+
+UNDO_WORDS = ('undo', 'reverse', 'take back', 'cancel', 'revert')
+ADD_VERBS = ('add', 'put', 'place', 'store', 'stock', 'insert', 'got', 'bought', 'purchased')
+REMOVE_VERBS = ('remove', 'take', 'delete', 'use', 'used', 'consume', 'consumed',
+                'subtract', 'ate', 'finished')
+SET_VERBS = ('set', 'change', 'update', 'adjust', 'modify', 'correct', 'fix')
+COMMAND_WORDS_TO_STRIP = ('add', 'remove', 'set', 'put', 'take', 'place', 'delete')
+
+DEFAULT_QUANTITIES = {
+    'a': 1, 'an': 1, 'one': 1, 'two': 2, 'three': 3,
+    'four': 4, 'five': 5, 'six': 6, 'seven': 7,
+    'eight': 8, 'nine': 9, 'ten': 10, 'dozen': 12,
+}
+
+MAX_COMMAND_LEN = 500
+MAX_QUANTITY = 10000
+
 
 def _ensure_nlp(config_manager):
-    """Attempt to load spaCy model once; return the model or None on failure."""
-    global nlp
-    if nlp is not None:
-        return nlp
+    """Load spaCy lazily; cache the result so we only attempt once."""
+    global _nlp, _nlp_load_attempted
+    if _nlp_load_attempted:
+        return _nlp
+    _nlp_load_attempted = True
+
     if spacy is None:
         return None
-    
-    # Get NLP configuration
     nlp_config = config_manager.get_nlp_config()
-    
     if not nlp_config.get('enable_spacy', True):
         logging.info("spaCy disabled in configuration, using rule-based parsing")
-        nlp = None
         return None
-    
+    model_name = nlp_config.get('spacy_model', 'en_core_web_sm')
     try:
-        model_name = nlp_config.get('spacy_model', 'en_core_web_sm')
-        nlp = spacy.load(model_name)
-        logging.info(f"Successfully loaded spaCy model: {model_name}")
-        return nlp
+        _nlp = spacy.load(model_name)
+        logging.info(f"Loaded spaCy model: {model_name}")
     except Exception as e:
-        logging.warning(f"spaCy model '{nlp_config.get('spacy_model', 'en_core_web_sm')}' not available, falling back to rule-based parsing: {e}")
-        nlp = None
-        return None
+        logging.warning(f"spaCy model '{model_name}' unavailable, falling back: {e}")
+        _nlp = None
+    return _nlp
+
 
 def parse_quantity(text: str, config_manager) -> Optional[int]:
-    """Parse a quantity from text, handling both numeric and word forms."""
+    """Parse a quantity from text, accepting digits and number-words.
+    Returns None for invalid, negative, or out-of-range values."""
     if not text:
         return None
-    
-    # Sanitize input
     text = text.strip()
-    
-    # Try direct numeric conversion first
+
     try:
         quantity = int(text)
-        # Validate reasonable bounds
-        if quantity < 0:
-            logging.warning(f"Negative quantity parsed: {quantity}")
-            return None
-        if quantity > 10000:
-            logging.warning(f"Unreasonably large quantity: {quantity}")
-            return None
-        return quantity
     except (ValueError, OverflowError):
-        pass
-    
-    # Try word to number conversion
-    try:
-        # Get special quantities from configuration
-        command_config = config_manager.get_command_config()
-        special_quantities = command_config.get('special_quantities', {
-            'a': 1, 'an': 1, 'one': 1, 'two': 2, 'three': 3,
-            'four': 4, 'five': 5, 'six': 6, 'seven': 7,
-            'eight': 8, 'nine': 9, 'ten': 10, 'dozen': 12
-        })
-        
-        # First try our special quantities
+        quantity = None
+
+    if quantity is None:
         text_lower = text.lower()
-        if text_lower in special_quantities:
-            return special_quantities[text_lower]
-        
-        # Then try word2number if available
-        if W2N_AVAILABLE:
+        special = (config_manager.get_command_config().get('special_quantities')
+                   or DEFAULT_QUANTITIES)
+        if text_lower in special:
+            quantity = special[text_lower]
+        elif W2N_AVAILABLE:
             try:
-                quantity = w2n.word_to_num(text)
-                # Validate bounds
-                if 0 <= quantity <= 10000:
-                    return quantity
+                quantity = w2n.word_to_num(text_lower)
             except (ValueError, AttributeError):
-                pass
-    except Exception as e:
-        logging.error(f"Error parsing quantity '{text}': {e}")
-    
+                quantity = None
+
+    if quantity is None:
+        return None
+    if quantity < 0 or quantity > MAX_QUANTITY:
+        logging.warning(f"Quantity out of range: {quantity}")
+        return None
+    return quantity
+
+
+def _classify_verb(command_text: str, config_manager) -> Optional[str]:
+    """Decide whether the user said add / remove / set / undo / nothing.
+    Tries spaCy lemmas first, falls back to keyword regex."""
+    if any(word in command_text for word in UNDO_WORDS):
+        return "undo"
+
+    model = _ensure_nlp(config_manager)
+    if model is not None:
+        try:
+            doc = model(command_text)
+            for token in doc:
+                if token.lemma_ in ADD_VERBS:
+                    return "add"
+                if token.lemma_ in REMOVE_VERBS:
+                    return "remove"
+                if token.lemma_ in SET_VERBS:
+                    return "set"
+        except Exception as e:
+            logging.error(f"spaCy classification failed: {e}")
+
+    for verb_set, label in ((ADD_VERBS, "add"), (REMOVE_VERBS, "remove"), (SET_VERBS, "set")):
+        if re.search(rf"\b({'|'.join(verb_set)})\b", command_text):
+            return label
     return None
 
+
+def _extract_set_arguments(command_text: str, config_manager):
+    """Parse 'set X to Y' or 'set X Y'. Returns (item_name, quantity) or (None, None)."""
+    match = re.search(r"set\s+(.+?)\s+to\s+(\S+)\s*$", command_text)
+    if match:
+        return match.group(1).strip(), parse_quantity(match.group(2), config_manager)
+    match = re.search(r"set\s+(.+?)\s+(\S+)\s*$", command_text)
+    if match:
+        return match.group(1).strip(), parse_quantity(match.group(2), config_manager)
+    return None, None
+
+
+def _extract_add_remove_arguments(command_text: str, command_type: str, config_manager):
+    """Strip the command verb and pull the first quantity-token + item name."""
+    text = re.sub(rf"\b{command_type}\b", "", command_text).strip()
+    words = text.split()
+    if not words:
+        return None, None
+
+    first = parse_quantity(words[0], config_manager)
+    if first is not None:
+        return " ".join(words[1:]) or None, first
+    for i, word in enumerate(words):
+        qty = parse_quantity(word, config_manager)
+        if qty is not None:
+            item_words = words[:i] + words[i + 1:]
+            return " ".join(item_words) or None, qty
+    return text, None
+
+
+def _scrub_item_name(item_name: str) -> str:
+    for cmd in COMMAND_WORDS_TO_STRIP:
+        item_name = re.sub(rf"\b{cmd}\b", "", item_name)
+    return " ".join(item_name.split())
+
+
 def interpret_command(command_text: str, config_manager) -> Tuple[Optional[str], Optional[InventoryItem]]:
-    """
-    Interpret a command from text input.
-    Returns a tuple of (command_type, InventoryItem) for add/remove/set commands,
-    or (None, None) if not recognized.
-    """
-    if not command_text:
+    """Interpret a voice command. Returns (command_type, InventoryItem) or (None, None)."""
+    if not command_text or not isinstance(command_text, str):
         return None, None
-    
-    # Validate and sanitize input
-    if not isinstance(command_text, str):
-        logging.error(f"Invalid command type: {type(command_text)}")
-        return None, None
-    
-    # Limit command length to prevent DoS
-    if len(command_text) > 500:
+    if len(command_text) > MAX_COMMAND_LEN:
         logging.warning(f"Command too long: {len(command_text)} characters")
         return None, None
-        
-    # Convert to lowercase for consistency
+
     command_text = command_text.lower().strip()
-    
-    # Remove dangerous characters
-    command_text = re.sub(r'[;|&$`]', '', command_text)
-    
-    # Handle undo variations
-    undo_words = ['undo', 'reverse', 'take back', 'cancel', 'revert']
-    if any(word in command_text for word in undo_words):
+    command_type = _classify_verb(command_text, config_manager)
+    if command_type is None:
+        return None, None
+    if command_type == "undo":
         logging.info(f"Undo command detected: {command_text}")
         return "undo", None
-    
-    # Handle repeat variations (currently disabled)
-    if any(word in command_text for word in ['repeat', 'again', 'same']):
-        logging.info("Repeat command detected but currently disabled")
-        return None, None
-    
-    # Determine command type with comprehensive pattern matching
-    command_type = None
-    model = _ensure_nlp(config_manager)
-    
+
+    if command_type == "set":
+        item_name, quantity = _extract_set_arguments(command_text, config_manager)
+    else:
+        item_name, quantity = _extract_add_remove_arguments(command_text, command_type, config_manager)
+
+    if item_name:
+        item_name = _scrub_item_name(item_name)
+    if quantity is None:
+        quantity = 1
+    if not item_name:
+        logging.warning(f"Could not extract item name from: {command_text}")
+        return command_type, None
+    if quantity < 0 or quantity > MAX_QUANTITY:
+        logging.warning(f"Invalid quantity {quantity} for item {item_name}")
+        return command_type, None
+
+    normalized = normalize_item_name(item_name, config_manager) or item_name
     try:
-        if model is not None:
-            doc = model(command_text)
-            # Extended command recognition
-            add_verbs = ['add', 'put', 'place', 'store', 'stock', 'insert']
-            remove_verbs = ['remove', 'take', 'delete', 'use', 'consume', 'subtract']
-            set_verbs = ['set', 'change', 'update', 'adjust', 'modify', 'correct']
-            
-            for token in doc:
-                if token.lemma_ in add_verbs:
-                    command_type = "add"
-                    break
-                elif token.lemma_ in remove_verbs:
-                    command_type = "remove"
-                    break
-                elif token.lemma_ in set_verbs:
-                    command_type = "set"
-                    break
-        else:
-            # Enhanced regex patterns
-            add_pattern = r"\b(add|put|place|store|stock|insert|got|bought|purchased)\b"
-            remove_pattern = r"\b(remove|take|delete|use|used|consume|consumed|subtract|ate|finished)\b"
-            set_pattern = r"\b(set|change|update|adjust|modify|correct|fix|have)\b"
-            
-            if re.search(add_pattern, command_text):
-                command_type = "add"
-            elif re.search(remove_pattern, command_text):
-                command_type = "remove"
-            elif re.search(set_pattern, command_text):
-                command_type = "set"
-    except Exception as e:
-        logging.error(f"Error determining command type: {e}")
-        # Fall back to basic pattern matching
-        if "add" in command_text or "put" in command_text:
-            command_type = "add"
-        elif "remove" in command_text or "take" in command_text:
-            command_type = "remove"
-        elif "set" in command_text or "change" in command_text:
-            command_type = "set"
-    
-    if not command_type:
-        return None, None
-    
-    # Extract quantity and item with better error handling
-    quantity = None
-    item_name = None
-    
-    try:
-        # For set commands, handle the special case of "to" vs "two"
-        if command_type == "set":
-            # Look for patterns like "set X to Y" or "set X Y"
-            to_match = re.search(r"set\s+(.+?)\s+to\s+(\S+)", command_text)
-            if to_match:
-                item_name = to_match.group(1).strip()
-                quantity_text = to_match.group(2).strip()
-                quantity = parse_quantity(quantity_text, config_manager)
-            else:
-                # Try pattern without "to"
-                set_match = re.search(r"set\s+(.+?)\s+(\d+|\w+)$", command_text)
-                if set_match:
-                    item_name = set_match.group(1).strip()
-                    quantity = parse_quantity(set_match.group(2), config_manager)
-        else:
-            # For add/remove commands, look for quantity and item
-            # Remove command word first
-            text_without_command = re.sub(rf"\b{command_type}\b", "", command_text).strip()
-            
-            # Try to find quantity at the beginning
-            words = text_without_command.split()
-            if words:
-                # Check first word for quantity
-                first_quantity = parse_quantity(words[0], config_manager)
-                if first_quantity is not None:
-                    quantity = first_quantity
-                    item_name = " ".join(words[1:])
-                else:
-                    # Check for quantity anywhere in the text
-                    for i, word in enumerate(words):
-                        parsed_quantity = parse_quantity(word, config_manager)
-                        if parsed_quantity is not None:
-                            quantity = parsed_quantity
-                            # Item name is everything except the quantity word
-                            item_words = words[:i] + words[i+1:]
-                            item_name = " ".join(item_words)
-                            break
-                    
-                    # If no quantity found, assume whole text is item name
-                    if quantity is None:
-                        item_name = text_without_command
-        
-        # Clean up item name
-        if item_name:
-            # Remove any remaining command words
-            for cmd in ['add', 'remove', 'set', 'put', 'take', 'place', 'delete']:
-                item_name = re.sub(rf"\b{cmd}\b", "", item_name).strip()
-            
-            # Remove extra whitespace
-            item_name = " ".join(item_name.split())
-        
-        # Default to 1 if no quantity specified
-        if quantity is None:
-            quantity = 1
-        
-        # Validate final values
-        if not item_name or len(item_name) < 1:
-            logging.warning(f"Could not extract item name from: {command_text}")
-            return command_type, None
-        
-        if quantity < 0 or quantity > 10000:
-            logging.warning(f"Invalid quantity {quantity} for item {item_name}")
-            return command_type, None
-        
-        # Normalize the item name and create InventoryItem
-        try:
-            item_name = normalize_item_name(item_name, config_manager)
-            if item_name:  # normalize_item_name might return None
-                return command_type, InventoryItem(item_name=item_name, quantity=quantity)
-        except (ValueError, TypeError) as e:
-            logging.error(f"Error creating inventory item: {e}")
-            return command_type, None
-    
-    except Exception as e:
-        logging.error(f"Error extracting quantity and item: {e}")
+        return command_type, InventoryItem(item_name=normalized, quantity=quantity)
+    except (ValueError, TypeError) as e:
+        logging.error(f"Error creating inventory item: {e}")
         return command_type, None

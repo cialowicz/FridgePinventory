@@ -68,3 +68,28 @@ def test_various_tilapia_forms(command, expected_type, mock_config_manager):
     command_type, item = interpret_command(command, mock_config_manager)
     assert command_type == expected_type
     assert item.item_name == "white fish"
+
+
+def test_empty_string_returns_none(mock_config_manager):
+    assert interpret_command("", mock_config_manager) == (None, None)
+
+
+def test_oversized_command_rejected(mock_config_manager):
+    assert interpret_command("a" * 600, mock_config_manager) == (None, None)
+
+
+def test_non_string_input_returns_none(mock_config_manager):
+    assert interpret_command(None, mock_config_manager) == (None, None)
+
+
+def test_default_quantity_is_one(mock_config_manager):
+    """Add commands with no number-word default to 1."""
+    command_type, item = interpret_command("add salmon", mock_config_manager)
+    assert command_type == "add"
+    assert item.quantity == 1
+
+
+def test_have_no_longer_classified_as_set(mock_config_manager):
+    """Questions like 'do you have salmon' should not register as set."""
+    command_type, _ = interpret_command("do you have salmon", mock_config_manager)
+    assert command_type is None
