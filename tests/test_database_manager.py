@@ -104,6 +104,20 @@ def test_last_modified_trigger_fires(db_manager_instance):
     assert after >= before
 
 
+def test_add_item_propagates_database_error(db_manager_instance, monkeypatch):
+    """sqlite3.Error inside add_item surfaces as DatabaseError, not silent False."""
+    import sqlite3
+
+    from pi_inventory_system.exceptions import DatabaseError
+
+    def boom(*args, **kwargs):
+        raise sqlite3.OperationalError("disk full")
+
+    monkeypatch.setattr(db_manager_instance, "get_current_quantity", boom)
+    with pytest.raises(DatabaseError):
+        db_manager_instance.add_item("steak", 1)
+
+
 def test_split_sql_statements_handles_trigger():
     from pi_inventory_system.database_manager import DatabaseManager
     script = """

@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from importlib import resources
 from typing import Any, List, Optional
 
+from .exceptions import DatabaseError
 from .inventory_item import InventoryItem
 
 logger = logging.getLogger(__name__)
@@ -171,7 +172,7 @@ class DatabaseManager:
             return result['quantity'] if result else 0
     
     def add_item(self, item_name: str, quantity: int) -> bool:
-        """Add items to inventory."""
+        """Add items to inventory. Raises DatabaseError on storage failure."""
         with self._lock:
             try:
                 with self._transaction() as conn:
@@ -198,9 +199,9 @@ class DatabaseManager:
                     )
                     cursor.close()
                 return True
-            except Exception as e:
-                logger.error(f"Error adding item {item_name}: {e}")
-                return False
+            except sqlite3.Error as e:
+                logger.error(f"Database error in add_item({item_name}): {e}")
+                raise DatabaseError(str(e)) from e
     
     def remove_item(self, item_name: str, quantity: int) -> bool:
         """Remove items from inventory."""
@@ -230,9 +231,9 @@ class DatabaseManager:
                     )
                     cursor.close()
                 return True
-            except Exception as e:
-                logger.error(f"Error removing item {item_name}: {e}")
-                return False
+            except sqlite3.Error as e:
+                logger.error(f"Database error in remove_item({item_name}): {e}")
+                raise DatabaseError(str(e)) from e
     
     def set_item(self, item_name: str, quantity: int) -> bool:
         """Set the quantity of an item."""
@@ -266,9 +267,9 @@ class DatabaseManager:
                     )
                     cursor.close()
                 return True
-            except Exception as e:
-                logger.error(f"Error setting item {item_name}: {e}")
-                return False
+            except sqlite3.Error as e:
+                logger.error(f"Database error in set_item({item_name}): {e}")
+                raise DatabaseError(str(e)) from e
     
     def undo_last_change(self) -> tuple[bool, Optional[str]]:
         """Undo the last inventory change."""
@@ -306,9 +307,9 @@ class DatabaseManager:
                     )
                     cursor.close()
                 return True, item_name
-            except Exception as e:
-                logger.error(f"Error undoing last change: {e}")
-                return False, None
+            except sqlite3.Error as e:
+                logger.error(f"Database error in undo_last_change: {e}")
+                raise DatabaseError(str(e)) from e
     
     def get_inventory(self) -> List[tuple[str, int]]:
         """Get the current inventory state."""

@@ -5,7 +5,7 @@ from .command_processor import interpret_command
 from .display_manager import display_inventory
 from .item_normalizer import normalize_item_name
 from .inventory_item import InventoryItem
-from .exceptions import InventoryError, CommandProcessingError
+from .exceptions import CommandProcessingError, DatabaseError, InventoryError
 
 
 class InventoryController:
@@ -162,74 +162,52 @@ class InventoryController:
         return True
     
     def _execute_command(self, command_type: str, item: Optional[InventoryItem]) -> Tuple[bool, Optional[int], Optional[str]]:
-        """
-        Execute a command based on its type and item.
-        Returns tuple of (success, new_quantity, undo_item_name) where undo_item_name is only set for undo operations.
-        """
+        """Execute a command and return (success, new_quantity, undo_item_name)."""
         if command_type == "undo":
             try:
                 success, undo_item_name = self._db_manager.undo_last_change()
-                if success and undo_item_name:
-                    # Get the new quantity for the undone item
-                    new_quantity = self._db_manager.get_current_quantity(undo_item_name)
-                    return success, new_quantity, undo_item_name
-                return success, None, undo_item_name
-            except Exception as e:
-                logging.error(f"Error executing undo: {e}")
+            except DatabaseError as e:
+                logging.error(f"Undo failed at the storage layer: {e}")
                 return False, None, None
+            if success and undo_item_name:
+                return True, self._db_manager.get_current_quantity(undo_item_name), undo_item_name
+            return success, None, undo_item_name
 
         if not command_type or not item:
             logging.warning(f"Missing command type or item: type={command_type}, item={item}")
             return False, None, None
 
+        # Normalise without mutating the caller's InventoryItem.
+        normalized_name = normalize_item_name(item.item_name, self.config_manager) or item.item_name
+        normalized = InventoryItem(item_name=normalized_name, quantity=item.quantity)
+        logging.info(f"Executing {command_type} for {normalized.item_name} (qty: {normalized.quantity})")
+
         try:
-            # Normalize item name before execution
-            original_name = item.item_name
-            item.item_name = normalize_item_name(item.item_name, self.config_manager) or item.item_name
-            
-            # Log the operation
-            logging.info(f"Executing {command_type} for {item.item_name} (qty: {item.quantity})")
-            
-            # Execute the command with validation
-            success = False
             if command_type == "add":
-                # Check for reasonable limits
-                current_qty = self._db_manager.get_current_quantity(item.item_name)
-                if current_qty + item.quantity > 10000:
-                    logging.warning(f"Adding would exceed maximum quantity for {item.item_name}")
-                    raise InventoryError(f"Cannot add {item.quantity} - would exceed maximum of 10000")
-                success = self._db_manager.add_item(item.item_name, item.quantity)
-                
+                current_qty = self._db_manager.get_current_quantity(normalized.item_name)
+                if current_qty + normalized.quantity > 10000:
+                    raise InventoryError(
+                        f"Cannot add {normalized.quantity} - would exceed maximum of 10000")
+                success = self._db_manager.add_item(normalized.item_name, normalized.quantity)
             elif command_type == "remove":
-                # Check if enough items exist
-                current_qty = self._db_manager.get_current_quantity(item.item_name)
-                if current_qty < item.quantity:
-                    logging.info(f"Removing {item.quantity} but only {current_qty} available")
-                    # Allow partial removal
-                success = self._db_manager.remove_item(item.item_name, item.quantity)
-                
+                success = self._db_manager.remove_item(normalized.item_name, normalized.quantity)
             elif command_type == "set":
-                # Direct set with validation already done
-                success = self._db_manager.set_item(item.item_name, item.quantity)
+                success = self._db_manager.set_item(normalized.item_name, normalized.quantity)
             else:
                 logging.error(f"Unknown command type: {command_type}")
                 return False, None, None
-
-            if success:
-                # Get the new quantity
-                new_quantity = self._db_manager.get_current_quantity(item.item_name)
-                # Add to command history (limit size)
-                self._command_history.append((command_type, item))
-                if len(self._command_history) > 100:  # Keep last 100 commands
-                    self._command_history = self._command_history[-100:]
-                return True, new_quantity, None
-            else:
-                logging.warning(f"Command {command_type} failed for {item.item_name}")
-                return False, None, None
-
-        except InventoryError as e:
-            logging.error(f"Inventory error: {e}")
-            raise CommandProcessingError(str(e))
-        except Exception as e:
-            logging.error(f"Unexpected error executing command: {e}")
+        except DatabaseError as e:
+            logging.error(f"Storage failure during {command_type}: {e}")
             return False, None, None
+        except InventoryError as e:
+            raise CommandProcessingError(str(e))
+
+        if not success:
+            logging.warning(f"Command {command_type} reported failure for {normalized.item_name}")
+            return False, None, None
+
+        new_quantity = self._db_manager.get_current_quantity(normalized.item_name)
+        self._command_history.append((command_type, normalized))
+        if len(self._command_history) > 100:
+            self._command_history = self._command_history[-100:]
+        return True, new_quantity, None
