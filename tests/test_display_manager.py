@@ -111,6 +111,30 @@ def test_waveshare_display_image_propagates_hardware_failure():
     with pytest.raises(RuntimeError, match="panel busy"):
         display.display_image(image)
 
+
+def test_waveshare_display_image_falls_back_without_4gray_methods():
+    class BasicDisplay:
+        def __init__(self):
+            self.displayed_buffer = None
+
+        def getbuffer(self, image):
+            assert image.mode == "1"
+            return ["basic-buffer"]
+
+        def display(self, buffer):
+            self.displayed_buffer = buffer
+
+    display = WaveshareDisplay.__new__(WaveshareDisplay)
+    display._initialized = True
+    display._display = BasicDisplay()
+
+    image = Image.new("L", (display.WIDTH, display.HEIGHT), 255)
+
+    display.display_image(image)
+
+    assert display._display.displayed_buffer == ["basic-buffer"]
+
+
 def test_lozenge_border_color():
     """Test lozenge border color changes based on quantity."""
     mock_draw = MagicMock()

@@ -29,15 +29,7 @@ ADD_VERBS = ('add', 'put', 'place', 'store', 'stock', 'insert', 'got', 'bought',
 REMOVE_VERBS = ('remove', 'take', 'delete', 'use', 'used', 'consume', 'consumed',
                 'subtract', 'ate', 'finished')
 SET_VERBS = ('set', 'change', 'update', 'adjust', 'modify', 'correct', 'fix')
-COMMAND_WORDS_TO_STRIP = tuple(sorted(
-    set(ADD_VERBS + REMOVE_VERBS + SET_VERBS),
-    key=len,
-    reverse=True,
-))
-# Pre-compiled alternation: one re.sub per item-name scrub instead of N.
-_COMMAND_WORDS_RE = re.compile(
-    r"\b(?:" + "|".join(re.escape(w) for w in COMMAND_WORDS_TO_STRIP) + r")\b"
-)
+VERB_LABELS = ((ADD_VERBS, "add"), (REMOVE_VERBS, "remove"), (SET_VERBS, "set"))
 ITEM_FILLER_WORDS = {'of', 'the'}
 
 DEFAULT_QUANTITIES = {
@@ -140,16 +132,30 @@ def _classify_verb(command_text: str, config_manager) -> Optional[str]:
         except Exception as e:
             logging.error(f"spaCy classification failed: {e}")
 
-    for verb_set, label in ((ADD_VERBS, "add"), (REMOVE_VERBS, "remove"), (SET_VERBS, "set")):
-        if re.search(rf"\b({'|'.join(verb_set)})\b", command_text):
-            return label
+    matches = []
+    for verb_set, label in VERB_LABELS:
+        verb_pattern = "|".join(
+            re.escape(verb) for verb in sorted(verb_set, key=len, reverse=True)
+        )
+        match = re.search(rf"\b(?:{verb_pattern})\b", command_text)
+        if match:
+            matches.append((match.start(), label))
+    if matches:
+        return min(matches, key=lambda item: item[0])[1]
     return None
 
 
-def _strip_leading_verb(command_text: str, verbs) -> str:
+def _strip_command_verb(command_text: str, verbs) -> str:
     """Remove the matched command verb while preserving the item phrase."""
-    verb_pattern = "|".join(re.escape(verb) for verb in sorted(verbs, key=len, reverse=True))
-    return re.sub(rf"^\s*(?:{verb_pattern})\b\s*", "", command_text, count=1).strip()
+    verb_pattern = "|".join(
+        re.escape(verb) for verb in sorted(verbs, key=len, reverse=True)
+    )
+    return re.sub(
+        rf"^.*?\b(?:{verb_pattern})\b\s*",
+        "",
+        command_text,
+        count=1,
+    ).strip()
 
 
 def _clean_item_words(words):
@@ -186,7 +192,9 @@ def _parse_quantity_words(words, config_manager):
 
 def _extract_set_arguments(command_text: str, config_manager):
     """Parse 'set X to Y' or 'set X Y'. Returns (item_name, quantity) or (None, None)."""
-    text = _strip_leading_verb(command_text, SET_VERBS)
+    text = _strip_command_verb(command_text, SET_VERBS)
+    if not text or re.match(r"^to(?:\s|$)", text):
+        return None, None
     match = re.search(r"(.+?)\s+to\s+(.+?)\s*$", text)
     if match:
         return match.group(1).strip(), parse_quantity(match.group(2), config_manager)
@@ -199,7 +207,7 @@ def _extract_set_arguments(command_text: str, config_manager):
 def _extract_add_remove_arguments(command_text: str, command_type: str, config_manager):
     """Strip the command verb and pull the first quantity-token + item name."""
     verbs = ADD_VERBS if command_type == "add" else REMOVE_VERBS
-    text = _strip_leading_verb(command_text, verbs)
+    text = _strip_command_verb(command_text, verbs)
     words = text.split()
     if not words:
         return None, None
@@ -218,10 +226,13 @@ def _extract_add_remove_arguments(command_text: str, command_type: str, config_m
 
 
 def _scrub_item_name(item_name: str) -> str:
-    return " ".join(_COMMAND_WORDS_RE.sub("", item_name).split())
+    return " ".join(item_name.split())
 
 
-def interpret_command(command_text: str, config_manager) -> Tuple[Optional[str], Optional[InventoryItem]]:
+def interpret_command(
+    command_text: str,
+    config_manager,
+) -> Tuple[Optional[str], Optional[InventoryItem]]:
     """Interpret a voice command. Returns (command_type, InventoryItem) or (None, None)."""
     if not command_text or not isinstance(command_text, str):
         return None, None
@@ -240,7 +251,11 @@ def interpret_command(command_text: str, config_manager) -> Tuple[Optional[str],
     if command_type == "set":
         item_name, quantity = _extract_set_arguments(command_text, config_manager)
     else:
-        item_name, quantity = _extract_add_remove_arguments(command_text, command_type, config_manager)
+        item_name, quantity = _extract_add_remove_arguments(
+            command_text,
+            command_type,
+            config_manager,
+        )
 
     if item_name:
         item_name = _scrub_item_name(item_name)

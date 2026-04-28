@@ -1,11 +1,15 @@
 # Motion sensor manager with proper encapsulation and no global state
 
 import logging
+import re
 import subprocess
 import threading
 from typing import Optional
 
 from . import platform_info
+
+
+_PINCTRL_HIGH_RE = re.compile(r"(?:\blevel\s*=\s*1\b|\|\s*hi\b)", re.IGNORECASE)
 
 
 class MotionSensorManager:
@@ -24,7 +28,7 @@ class MotionSensorManager:
         self._gpio = None
         self._gpiozero_sensor = None
         self._last_error: Optional[str] = None
-        self._pin = pin or self._get_configured_pin()
+        self._pin = pin if pin is not None else self._get_configured_pin()
         self._is_pi5 = platform_info.is_raspberry_pi_5()
         self._is_pi = platform_info.is_raspberry_pi()
         self.logger = logging.getLogger(__name__)
@@ -36,7 +40,8 @@ class MotionSensorManager:
     def _get_configured_pin(self) -> int:
         """Get configured pin from config."""
         cfg = self._get_motion_config()
-        return cfg.get('pin', 4)  # Default to pin 4
+        configured_pin = cfg.get('pin')
+        return 4 if configured_pin is None else configured_pin  # Default to pin 4
     
     def _get_motion_config(self):
         """Safely retrieve motion sensor config as a plain dict."""
@@ -83,6 +88,10 @@ class MotionSensorManager:
 
     def _clear_error(self) -> None:
         self._last_error = None
+
+    @staticmethod
+    def _pinctrl_output_is_high(output: str) -> bool:
+        return bool(_PINCTRL_HIGH_RE.search(output or ""))
 
     def _setup_gpiozero_pi5(self) -> bool:
         """Use gpiozero/lgpio on Pi 5 when installed to avoid shelling out per read."""
@@ -157,7 +166,7 @@ class MotionSensorManager:
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=5)
             self._clear_error()
-            return 'level=1' in result.stdout
+            return self._pinctrl_output_is_high(result.stdout)
         except (subprocess.CalledProcessError, PermissionError) as e:
             cfg = self._get_motion_config()
             if cfg.get('allow_sudo', False):
@@ -165,7 +174,7 @@ class MotionSensorManager:
                 try:
                     result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=5)
                     self._clear_error()
-                    return 'level=1' in result.stdout
+                    return self._pinctrl_output_is_high(result.stdout)
                 except Exception as sudo_error:
                     self._set_error(f"Failed to read pin with sudo: {sudo_error}")
                     return False

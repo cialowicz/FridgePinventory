@@ -88,6 +88,12 @@ def test_detect_motion_on_pi5(mock_subprocess, mock_check_pi, mock_check_pi5, mo
         assert mock_subprocess.call_count == 1
         assert 'get' in mock_subprocess.call_args_list[0].args[0]
 
+        mock_subprocess.reset_mock()
+        mock_subprocess.return_value = MagicMock(stdout='4: ip    pd | hi // GPIO4 = input')
+        assert manager.detect_motion() is True
+        assert mock_subprocess.call_count == 1
+        assert 'get' in mock_subprocess.call_args_list[0].args[0]
+
         # Additional test to ensure correct initialization
         mock_subprocess.reset_mock()
         mock_subprocess.return_value = MagicMock(stdout='level=0')
@@ -95,6 +101,28 @@ def test_detect_motion_on_pi5(mock_subprocess, mock_check_pi, mock_check_pi5, mo
         # Check that only 'get' is called after initialization
         assert mock_subprocess.call_count == 1
         assert 'get' in mock_subprocess.call_args_list[0].args[0]
+
+        mock_subprocess.reset_mock()
+        mock_subprocess.return_value = MagicMock(stdout='4: ip    pd | lo // GPIO4 = input')
+        assert manager.detect_motion() is False
+        assert mock_subprocess.call_count == 1
+        assert 'get' in mock_subprocess.call_args_list[0].args[0]
+
+
+@patch('pi_inventory_system.platform_info.is_raspberry_pi_5', return_value=True)
+@patch('pi_inventory_system.platform_info.is_raspberry_pi', return_value=True)
+def test_motion_pin_defaults_to_gpio4_when_config_pin_is_none(
+    mock_check_pi,
+    mock_check_pi5,
+):
+    config = MagicMock()
+    config.get_hardware_config.return_value = {
+        'motion_sensor': {'pin': None, 'enabled': True}
+    }
+
+    manager = MotionSensorManager(config_manager=config)
+
+    assert manager._pin == 4
 
 @pytest.mark.skip(reason="Hardware-dependent test")
 def test_real_motion_detection():

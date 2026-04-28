@@ -32,6 +32,7 @@ def test_set_command(mock_config_manager):
 @pytest.mark.parametrize("command", [
     "set salmon to many",
     "set salmon to",
+    "set to 3",
 ])
 def test_set_command_requires_explicit_quantity(command, mock_config_manager):
     command_type, item = interpret_command(command, mock_config_manager)
@@ -117,6 +118,33 @@ def test_default_quantity_is_one(mock_config_manager):
     command_type, item = interpret_command("add salmon", mock_config_manager)
     assert command_type == "add"
     assert item.quantity == 1
+
+
+@pytest.mark.parametrize("command,expected_type", [
+    ("add chicken stock", "add"),
+    ("remove chicken stock", "remove"),
+])
+def test_command_words_can_be_part_of_item_names(command, expected_type, mock_config_manager):
+    command_type, item = interpret_command(command, mock_config_manager)
+
+    assert command_type == expected_type
+    assert item == InventoryItem(item_name="chicken stock", quantity=1)
+
+
+@pytest.mark.parametrize("command,expected_type,expected_item", [
+    ("please add salmon", "add", "salmon"),
+    ("i bought salmon", "add", "salmon"),
+])
+def test_non_leading_command_verbs_preserve_item_phrase(
+    command,
+    expected_type,
+    expected_item,
+    mock_config_manager,
+):
+    command_type, item = interpret_command(command, mock_config_manager)
+
+    assert command_type == expected_type
+    assert item == InventoryItem(item_name=expected_item, quantity=1)
 
 
 def test_have_no_longer_classified_as_set(mock_config_manager):

@@ -194,7 +194,7 @@ class WaveshareDisplay:
             draw.text((50, 200), "4Gray Display", fill=85, font=font)   # Dark gray
             draw.text((50, 250), "Initialized!", fill=170, font=font)   # Light gray
 
-            if using_4gray and hasattr(self._epd_instance, 'display_4GRAY'):
+            if using_4gray and self._supports_4gray(self._epd_instance):
                 buffer = self._epd_instance.getbuffer_4Gray(test_image)
                 self._epd_instance.display_4GRAY(buffer)
             else:
@@ -212,6 +212,13 @@ class WaveshareDisplay:
             self._is_mock = True
             self._initialized = True
             return False
+
+    @staticmethod
+    def _supports_4gray(display) -> bool:
+        return (
+            callable(getattr(display, 'display_4GRAY', None))
+            and callable(getattr(display, 'getbuffer_4Gray', None))
+        )
     
     def clear(self):
         """Clear the display to white."""
@@ -249,7 +256,7 @@ class WaveshareDisplay:
             logger.debug("Updating display with new image...")
             start_time = time.time()
             
-            if image.mode == 'L':
+            if image.mode == 'L' and self._supports_4gray(self._display):
                 # Grayscale mode - use 4Gray display
                 logger.debug("Using 4Gray display mode")
                 self._display.display_4GRAY(self._display.getbuffer_4Gray(image))

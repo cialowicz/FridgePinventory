@@ -90,6 +90,7 @@ class FridgePinventoryApp:
         self._voice_started_at: Optional[float] = None
         self._voice_timeout_logged = False
         self._orphaned_voice_tasks: list[_VoiceTask] = []
+        self._orphaned_voice_managers: list[tuple[_VoiceTask, VoiceRecognitionManager]] = []
         self._voice_disabled = False
         # Bound copies of the manager triple submitted with each voice task —
         # protects an in-flight task from a mid-flight reset_voice_worker swap.
@@ -217,14 +218,14 @@ class FridgePinventoryApp:
         of firing audio cues from beyond the grave. We cap live orphaned tasks
         so repeated backend hangs disable voice instead of spawning forever.
         """
-        if self._voice_future and not self._voice_future.done():
-            self._orphaned_voice_tasks.append(self._voice_future)
+        future = self._voice_future
         old_manager = self.voice_manager
         self._owned_voice_manager = None
-        try:
-            old_manager.cleanup()
-        except Exception as e:
-            self.logger.warning(f"Old voice manager cleanup failed: {e}")
+        if future and not future.done():
+            self._orphaned_voice_tasks.append(future)
+            self._orphaned_voice_managers.append((future, old_manager))
+        else:
+            self._cleanup_voice_manager_best_effort(old_manager, "Old voice manager")
 
         self._voice_future = None
         self._voice_started_at = None
@@ -240,20 +241,43 @@ class FridgePinventoryApp:
         self._owned_voice_manager = self.voice_manager
         self._voice_disabled = False
 
-    def _wait_for_voice_worker(self, timeout: float = 8.0) -> None:
+    def _wait_for_voice_worker(self, timeout: float = 8.0) -> bool:
         """Block briefly until the active voice future has finished so cleanup
         does not yank the DB / TTS engine out from under it."""
         future = self._voice_future
         if future is None:
-            return
+            return True
         try:
             future.result(timeout=timeout)
         except TimeoutError:
             self.logger.warning("Voice worker did not finish before cleanup timeout")
+            return False
         except Exception as e:
             self.logger.warning(f"Voice worker exited with error: {e}")
+        return True
+
+    def _cleanup_voice_manager_best_effort(self, manager, label: str = "Voice manager") -> None:
+        try:
+            manager.cleanup()
+        except Exception as e:
+            self.logger.warning(f"{label} cleanup failed: {e}")
+
+    def _cleanup_active_voice_manager(self) -> None:
+        if self._voice_future and not self._voice_future.done():
+            self.logger.warning(
+                "Skipping voice manager cleanup while voice worker is still running"
+            )
+            return
+        self._cleanup_voice_manager_best_effort(self.voice_manager)
 
     def _prune_orphaned_voice_tasks(self) -> None:
+        remaining_managers = []
+        for task, manager in self._orphaned_voice_managers:
+            if task.done():
+                self._cleanup_voice_manager_best_effort(manager, "Retired voice manager")
+            else:
+                remaining_managers.append((task, manager))
+        self._orphaned_voice_managers = remaining_managers
         self._orphaned_voice_tasks = [
             task for task in self._orphaned_voice_tasks if not task.done()
         ]
@@ -351,7 +375,6 @@ class FridgePinventoryApp:
 
         cleanup_steps = [
             ("motion manager", self.motion_manager.cleanup),
-            ("voice manager", self.voice_manager.cleanup),
             # Wait for any in-flight voice worker to finish *before* tearing
             # down the DB / audio. Otherwise process_command running on the
             # worker thread can be writing to a connection the main thread
@@ -359,6 +382,8 @@ class FridgePinventoryApp:
             # engine. The voice manager's mic timeout caps how long this
             # blocks; we add a generous ceiling on top of that.
             ("voice worker", self._wait_for_voice_worker),
+            ("voice manager", self._cleanup_active_voice_manager),
+            ("retired voice managers", self._prune_orphaned_voice_tasks),
             ("audio feedback", self.audio_feedback.cleanup),
         ]
         if self.display:

@@ -119,13 +119,32 @@ def test_voice_timeout_retires_worker(app_context):
 
     assert app._check_voice_future() is False
 
-    old_voice.cleanup.assert_called_once()
+    old_voice.cleanup.assert_not_called()
     assert app._voice_future is None
     assert future in app._orphaned_voice_tasks
+    assert (future, old_voice) in app._orphaned_voice_managers
     # The fresh worker is functional and is the new owned manager.
     assert app._owned_voice_manager is app.voice_manager
     assert app._owned_voice_manager is not old_voice
     assert app._voice_disabled is False
+
+
+def test_prune_orphaned_voice_task_cleans_retired_manager(app_context):
+    app, _, _, _, _, _, old_voice, _ = app_context
+    future = MagicMock()
+    future.done.return_value = False
+    app._voice_future = future
+    app._voice_started_at = time.monotonic() - VOICE_TIMEOUT_SECONDS - 1
+
+    assert app._check_voice_future() is False
+    old_voice.cleanup.assert_not_called()
+
+    future.done.return_value = True
+    app._prune_orphaned_voice_tasks()
+
+    old_voice.cleanup.assert_called_once()
+    assert app._orphaned_voice_tasks == []
+    assert app._orphaned_voice_managers == []
 
 
 def test_voice_timeout_disables_after_orphan_cap(app_context):
@@ -184,6 +203,21 @@ def test_cleanup_waits_for_voice_worker_before_closing_db(app_context):
 
     # Both events fired and in the right order.
     assert [e[0] for e in voice_done] == ["future_drained", "db_closed"]
+
+
+def test_cleanup_skips_voice_manager_cleanup_when_worker_still_hung(app_context):
+    app, _, db, _, _, _, voice, audio = app_context
+
+    fake_future = MagicMock()
+    fake_future.done.return_value = False
+    fake_future.result.side_effect = TimeoutError("worker still running")
+    app._voice_future = fake_future
+
+    app._cleanup()
+
+    voice.cleanup.assert_not_called()
+    audio.cleanup.assert_called()
+    db.cleanup.assert_called()
 
 
 def test_cleanup_handles_voice_worker_timeout(app_context):
