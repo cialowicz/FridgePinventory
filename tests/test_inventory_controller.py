@@ -107,6 +107,33 @@ def test_process_command_missing_item_has_specific_feedback(controller):
         assert feedback == "Could not identify a valid item and quantity. Please try again."
 
 
+def test_process_command_set_to_zero_deletes(controller):
+    """`set X to 0` must reach set_item — quantity 0 is the delete idiom for set."""
+    item = InventoryItem(item_name="chicken", quantity=0)
+    controller.db.set_item.return_value = True
+    controller._db_manager.get_current_quantity.return_value = 0
+
+    with patch('pi_inventory_system.inventory_controller.interpret_command',
+              return_value=("set", item)), \
+         patch('pi_inventory_system.inventory_controller.display_inventory'):
+        success, feedback = controller.process_command("set chicken to 0")
+        assert success
+        assert feedback == "chicken has been removed from inventory."
+        controller.db.set_item.assert_called_once_with("chicken", 0)
+
+
+def test_process_command_rejects_zero_remove(controller):
+    """`remove 0 X` is not valid even though it's syntactically harmless."""
+    item = InventoryItem(item_name="chicken", quantity=0)
+
+    with patch('pi_inventory_system.inventory_controller.interpret_command',
+              return_value=("remove", item)):
+        success, feedback = controller.process_command("remove 0 chicken")
+        assert not success
+        assert feedback == "Invalid item details. Please check the item name and quantity."
+        controller.db.remove_item.assert_not_called()
+
+
 def test_process_command_rejects_zero_add(controller):
     item = InventoryItem(item_name="chicken", quantity=0)
 

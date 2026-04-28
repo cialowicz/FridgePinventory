@@ -110,7 +110,7 @@ class FridgePinventoryApp:
         self.running = False
         self.shutdown_event.set()
 
-    def _handle_voice_command(self, display_ok: bool, voice_manager=None) -> None:
+    def _handle_voice_command(self, voice_manager=None) -> None:
         # voice_manager is captured at submit time so a later reset_voice_worker
         # swap cannot redirect this in-flight task onto a different manager.
         voice_manager = voice_manager or self.voice_manager
@@ -192,13 +192,13 @@ class FridgePinventoryApp:
         self._voice_started_at = None
         self._voice_timeout_logged = False
 
-    def _kick_voice_command(self, display_ok: bool) -> None:
+    def _kick_voice_command(self) -> None:
         if self._check_voice_future():
             return
         self._voice_started_at = time.monotonic()
         bound_manager = self.voice_manager
         self._voice_future = self._voice_executor.submit(
-            self._handle_voice_command, display_ok, bound_manager,
+            self._handle_voice_command, bound_manager,
         )
 
     def run(self) -> None:
@@ -249,7 +249,7 @@ class FridgePinventoryApp:
                     self.logger.info("Motion detected, transitioning to active mode")
                     if display_ok:
                         self._refresh_display_best_effort()
-                    self._kick_voice_command(display_ok)
+                    self._kick_voice_command()
 
                 if previous_mode == ACTIVE and loop.mode != ACTIVE:
                     self.logger.info("Motion ended, deactivating")

@@ -69,7 +69,7 @@ def test_handle_voice_command_outputs_confirmation(app_context):
     voice.recognize_speech.return_value = "add 1 salmon"
     app.controller.process_command.return_value = (True, "salmon now has 1 in inventory.")
 
-    app._handle_voice_command(display_ok=True)
+    app._handle_voice_command()
 
     audio.output_confirmation.assert_called_once_with("salmon now has 1 in inventory.")
     audio.output_error.assert_not_called()
@@ -82,7 +82,7 @@ def test_handle_voice_command_outputs_error(app_context):
     voice.recognize_speech.return_value = "remove 1 salmon"
     app.controller.process_command.return_value = (False, "salmon is not in inventory.")
 
-    app._handle_voice_command(display_ok=True)
+    app._handle_voice_command()
 
     audio.output_error.assert_called_once_with("salmon is not in inventory.")
     audio.output_confirmation.assert_not_called()
@@ -91,13 +91,13 @@ def test_handle_voice_command_outputs_error(app_context):
 def test_kick_voice_command_does_not_block_motion_loop(app_context):
     app, _, _, _, _, _, _, _ = app_context
 
-    def slow_voice_command(_display_ok, _voice_manager=None):
+    def slow_voice_command(_voice_manager=None):
         time.sleep(0.2)
 
     app._handle_voice_command = slow_voice_command
 
     started = time.monotonic()
-    app._kick_voice_command(display_ok=True)
+    app._kick_voice_command()
     elapsed = time.monotonic() - started
 
     assert elapsed < 0.1
@@ -137,7 +137,7 @@ def test_handle_voice_command_uses_warning_chime_on_removal(app_context):
     app.controller.process_command.return_value = (
         True, "salmon has been removed from inventory.")
 
-    app._handle_voice_command(display_ok=True)
+    app._handle_voice_command()
 
     audio.speak.assert_called_once_with("salmon has been removed from inventory.")
     audio.play_sound.assert_called_once_with('warning')
@@ -170,7 +170,7 @@ def test_voice_executor_after_retire_runs_followup_command(app_context):
     new_voice.recognize_speech.return_value = "add 1 salmon"
     app.controller.process_command.return_value = (True, "salmon now has 1 in inventory.")
 
-    app._kick_voice_command(display_ok=False)
+    app._kick_voice_command()
     app._voice_future.result(timeout=1)
 
     audio.output_confirmation.assert_called_once()
@@ -189,7 +189,7 @@ def test_voice_command_emits_one_display_refresh(app_context):
     app.controller.process_command.side_effect = fake_process
     app.running = True
 
-    app._handle_voice_command(display_ok=True)
+    app._handle_voice_command()
 
     assert app.controller.update_display_with_inventory.call_count == 1
 
@@ -205,7 +205,7 @@ def test_orphaned_voice_task_does_not_emit_audio(app_context):
     orphan_manager = MagicMock()
     orphan_manager.recognize_speech.return_value = "add 1 salmon"
 
-    app._handle_voice_command(display_ok=True, voice_manager=orphan_manager)
+    app._handle_voice_command(voice_manager=orphan_manager)
 
     audio.output_confirmation.assert_not_called()
     audio.output_error.assert_not_called()
@@ -226,7 +226,7 @@ def test_run_processes_motion_transition_and_cleans_up(app_context):
     app, _, _, _, _, motion, _, _ = app_context
     motion.detect_motion.return_value = True
 
-    def stop_after_voice(_display_ok):
+    def stop_after_voice(*_args, **_kwargs):
         app.running = False
         app.shutdown_event.set()
 
@@ -236,7 +236,7 @@ def test_run_processes_motion_transition_and_cleans_up(app_context):
                return_value=(False, True, False, None)):
         app.run()
 
-    app._kick_voice_command.assert_called_once_with(False)
+    app._kick_voice_command.assert_called_once_with()
     motion.cleanup.assert_called()
 
 
@@ -245,7 +245,7 @@ def test_run_retries_motion_after_failed_diagnostics(app_context):
     motion.is_supported.return_value = True
     motion.detect_motion.return_value = True
 
-    def stop_after_voice(_display_ok):
+    def stop_after_voice(*_args, **_kwargs):
         app.running = False
         app.shutdown_event.set()
 
@@ -256,7 +256,7 @@ def test_run_retries_motion_after_failed_diagnostics(app_context):
         app.run()
 
     motion.is_supported.assert_called()
-    app._kick_voice_command.assert_called_once_with(False)
+    app._kick_voice_command.assert_called_once_with()
 
 
 def test_cleanup_continues_after_resource_failure(app_context):
