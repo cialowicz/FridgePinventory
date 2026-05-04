@@ -9,10 +9,32 @@ from importlib import resources
 from pathlib import Path
 from typing import Any, List, Optional
 
+from .constants import MAX_QUANTITY
 from .exceptions import DatabaseError
 from .inventory_item import InventoryItem
 
 logger = logging.getLogger(__name__)
+
+VALID_JOURNAL_MODES = {'DELETE', 'TRUNCATE', 'PERSIST', 'MEMORY', 'WAL', 'OFF'}
+VALID_SYNCHRONOUS_MODES = {'OFF', 'NORMAL', 'FULL', 'EXTRA'}
+VALID_TEMP_STORES = {'DEFAULT', 'FILE', 'MEMORY'}
+
+
+def _safe_pragma_choice(value: Any, allowed: set[str], default: str) -> str:
+    choice = str(value).upper()
+    if choice not in allowed:
+        logger.warning(f"Invalid SQLite PRAGMA value {value!r}; using {default}")
+        return default
+    return choice
+
+
+def _safe_int(value: Any, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        logger.warning(f"Invalid integer config value {value!r}; using {default}")
+        return default
+
 
 class DatabaseManager:
     """Simple database manager optimized for Raspberry Pi with SQLite."""
@@ -62,10 +84,26 @@ class DatabaseManager:
                 )
                 self._connection.row_factory = sqlite3.Row
                 
-                self._connection.execute(f"PRAGMA journal_mode={db_config.get('wal_mode', 'WAL')}")
-                self._connection.execute(f"PRAGMA synchronous={db_config.get('synchronous_mode', 'NORMAL')}")
-                self._connection.execute(f"PRAGMA cache_size={db_config.get('cache_size', 500)}")
-                self._connection.execute(f"PRAGMA temp_store={db_config.get('temp_store', 'MEMORY')}")
+                journal_mode = _safe_pragma_choice(
+                    db_config.get('wal_mode', 'WAL'),
+                    VALID_JOURNAL_MODES,
+                    'WAL',
+                )
+                synchronous_mode = _safe_pragma_choice(
+                    db_config.get('synchronous_mode', 'NORMAL'),
+                    VALID_SYNCHRONOUS_MODES,
+                    'NORMAL',
+                )
+                temp_store = _safe_pragma_choice(
+                    db_config.get('temp_store', 'MEMORY'),
+                    VALID_TEMP_STORES,
+                    'MEMORY',
+                )
+                cache_size = _safe_int(db_config.get('cache_size', 500), 500)
+                self._connection.execute(f"PRAGMA journal_mode={journal_mode}")
+                self._connection.execute(f"PRAGMA synchronous={synchronous_mode}")
+                self._connection.execute(f"PRAGMA cache_size={cache_size}")
+                self._connection.execute(f"PRAGMA temp_store={temp_store}")
                 
                 logger.info(f"Database connection established to {self._db_path}")
                 
@@ -191,7 +229,12 @@ class DatabaseManager:
             cursor.close()
             return result['quantity'] if result else 0
 
-    def _set_inventory_quantity(self, cursor: sqlite3.Cursor, item_name: str, quantity: int) -> None:
+    def _set_inventory_quantity(
+        self,
+        cursor: sqlite3.Cursor,
+        item_name: str,
+        quantity: int,
+    ) -> None:
         """Set inventory quantity, inserting or deleting the row as needed."""
         if quantity <= 0:
             cursor.execute(
@@ -242,6 +285,8 @@ class DatabaseManager:
             raise ValueError("quantity cannot be negative")
         if quantity == 0 and not allow_zero:
             raise ValueError("quantity must be greater than zero")
+        if quantity > MAX_QUANTITY:
+            raise ValueError(f"quantity cannot exceed {MAX_QUANTITY}")
     
     def add_item(self, item_name: str, quantity: int) -> bool:
         """Add items to inventory. Raises DatabaseError on storage failure."""
@@ -253,6 +298,8 @@ class DatabaseManager:
                     try:
                         current = self.get_current_quantity(item_name)
                         new_quantity = current + quantity
+                        if new_quantity > MAX_QUANTITY:
+                            raise ValueError(f"quantity cannot exceed {MAX_QUANTITY}")
                         action_id = self._next_action_id(cursor)
                         self._set_inventory_quantity(cursor, item_name, new_quantity)
                         self._record_history(cursor, item_name, current, new_quantity,

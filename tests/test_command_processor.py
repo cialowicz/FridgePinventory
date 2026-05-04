@@ -120,6 +120,23 @@ def test_default_quantity_is_one(mock_config_manager):
     assert item.quantity == 1
 
 
+@pytest.mark.parametrize("command", [
+    "add 10001 salmon",
+    "add -1 salmon",
+    "remove 10001 salmon",
+])
+def test_invalid_leading_quantities_do_not_become_item_names(command, mock_config_manager):
+    command_type, item = interpret_command(command, mock_config_manager)
+    assert command_type in {"add", "remove"}
+    assert item is None
+
+
+def test_remove_all_maps_to_clamping_remove(mock_config_manager):
+    command_type, item = interpret_command("remove all salmon", mock_config_manager)
+    assert command_type == "remove"
+    assert item == InventoryItem(item_name="salmon", quantity=10000)
+
+
 @pytest.mark.parametrize("command,expected_type", [
     ("add chicken stock", "add"),
     ("remove chicken stock", "remove"),

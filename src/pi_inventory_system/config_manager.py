@@ -2,13 +2,111 @@
 
 import logging
 import os
+from copy import deepcopy
 import threading
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 import yaml
 
+from .constants import ACTIVATION_AUTO, VALID_ACTIVATION_MODES
+from .exceptions import ConfigurationError
+
 logger = logging.getLogger(__name__)
+
+DEFAULT_CONFIG: Dict[str, Any] = {
+    'database': {
+        'path': '~/.local/share/fridgepinventory/inventory.db'
+    },
+    'display': {
+        'font': {
+            'path': '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+            'size': 16,
+            'fallback_size': 12
+        },
+        'layout': {
+            'items_per_row': 4,
+            'lozenge_height': 60,
+            'spacing': 15,
+            'margin': 20
+        },
+        'colors': {
+            'background': 'white',
+            'text': 'black',
+            'border_normal': 'black',
+            'border_low_stock': 'yellow',
+            'low_stock_threshold': 2
+        },
+        'clear_on_shutdown': False,
+        'max_stale_seconds': 300.0,
+        'show_startup_message': False,
+    },
+    'audio': {
+        'voice_recognition': {
+            'timeout': 5,
+            'phrase_time_limit': 10,
+            'engine': 'sphinx',
+            'device_index': None
+        },
+        'text_to_speech': {
+            'rate': 150,
+            'volume': 0.9,
+            'voice_id': None
+        },
+        'feedback_sounds': {
+            'success_sound': 'sounds/success.wav',
+            'error_sound': 'sounds/error.wav',
+            'warning_sound': 'sounds/error.wav'
+        }
+    },
+    'commands': {
+        'similarity_threshold': 0.8,
+        'special_quantities': {
+            'a': 1,
+            'an': 1,
+            'few': 3,
+            'several': 3
+        }
+    },
+    'system': {
+        'main_loop_delay': 0.1,
+        'motion_check_interval': 0.5,
+        'idle_delay': 1.0,
+        'log_level': 'INFO',
+        'enable_diagnostics': True,
+        'activation_mode': ACTIVATION_AUTO,
+        'simulation_voice_interval': 5.0,
+    },
+    'hardware': {
+        'motion_sensor': {
+            'enabled': True,
+            'pin': 4
+        },
+        'display': {
+            'enabled': True,
+            'auto_detect': True,
+            'type': 'Waveshare_397',
+            'resolution': '800x480',
+            'grayscale_levels': 4
+        }
+    },
+    'nlp': {
+        'spacy_model': 'en_core_web_sm',
+        'enable_spacy': True
+    },
+    'database_advanced': {
+        'timeout': 30.0,
+        'wal_mode': 'WAL',
+        'cache_size': 1000,
+        'synchronous_mode': 'NORMAL',
+        'temp_store': 'memory'
+    },
+    'platform': {
+        'raspberry_pi_model_file': '/proc/device-tree/model',
+        'required_pi_string': 'raspberry pi'
+    }
+}
+
 
 class ConfigManager:
     """Thread-safe configuration manager for the FridgePinventory system."""
@@ -21,6 +119,7 @@ class ConfigManager:
         """
         self._config: Optional[Dict[str, Any]] = None
         self._config_path = config_path
+        self._lock = threading.RLock()
         self.load_config(config_path)
     
     def load_config(self, config_path: Optional[str] = None) -> None:
@@ -31,111 +130,47 @@ class ConfigManager:
             project_root = current_dir.parent.parent
             config_path = project_root / "config.yaml"
         
-        try:
-            with open(config_path, 'r') as f:
-                self._config = yaml.safe_load(f)
-            if self._config is None:
-                self._config = {}
-            logger.info(f"Configuration loaded from {config_path}")
-        except FileNotFoundError:
-            logger.warning(f"Config file not found at {config_path}, using defaults")
-            self._config = self._get_default_config()
-        except yaml.YAMLError as e:
-            logger.error(f"Error parsing config file: {e}")
-            self._config = self._get_default_config()
-        
-        # Apply environment variable overrides
-        self._apply_env_overrides()
+        with self._lock:
+            try:
+                with open(config_path, 'r') as f:
+                    loaded = yaml.safe_load(f)
+                if loaded is None:
+                    loaded = {}
+                if not isinstance(loaded, dict):
+                    raise ConfigurationError("Config file must contain a YAML mapping")
+                self._config = self._merge_config(self._get_default_config(), loaded)
+                logger.info(f"Configuration loaded from {config_path}")
+            except FileNotFoundError:
+                logger.warning(f"Config file not found at {config_path}, using defaults")
+                self._config = self._get_default_config()
+            except yaml.YAMLError as e:
+                logger.error(f"Error parsing config file: {e}")
+                raise ConfigurationError(f"Invalid YAML in {config_path}: {e}") from e
+
+            self._apply_env_overrides()
+            self._validate_config()
     
     def _get_default_config(self) -> Dict[str, Any]:
         """Return default configuration values."""
-        return {
-            'database': {
-                'path': '~/.local/share/fridgepinventory/inventory.db'
-            },
-            'display': {
-                'font': {
-                    'path': '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
-                    'size': 16,
-                    'fallback_size': 12
-                },
-                'layout': {
-                    'items_per_row': 2,
-                    'lozenge_width_margin': 30,
-                    'lozenge_height': 40,
-                    'spacing': 10,
-                    'margin': 10
-                },
-                'colors': {
-                    'background': 'white',
-                    'text': 'black',
-                    'border_normal': 'black',
-                    'border_low_stock': 'yellow',
-                    'low_stock_threshold': 2
-                }
-            },
-            'audio': {
-                'voice_recognition': {
-                    'timeout': 5,
-                    'phrase_time_limit': 10,
-                    'engine': 'sphinx',
-                    'device_index': None
-                },
-                'text_to_speech': {
-                    'rate': 150,
-                    'volume': 0.9,
-                    'voice_id': None
-                },
-                'feedback_sounds': {
-                    'success_sound': 'sounds/success.wav',
-                    'error_sound': 'sounds/error.wav',
-                    'warning_sound': 'sounds/error.wav'
-                }
-            },
-            'commands': {
-                'similarity_threshold': 0.8,
-                'special_quantities': {
-                    'a': 1,
-                    'an': 1,
-                    'few': 3,
-                    'several': 3
-                }
-            },
-            'system': {
-                'main_loop_delay': 0.1,
-                'motion_check_interval': 0.5,
-                'idle_delay': 1.0,
-                'log_level': 'INFO',
-                'enable_diagnostics': True
-            },
-            'hardware': {
-                'motion_sensor': {
-                    'enabled': True,
-                    'pin': None
-                },
-                'display': {
-                    'enabled': True,
-                    'auto_detect': True,
-                    'type': None,
-                    'color': None
-                }
-            },
-            'nlp': {
-                'spacy_model': 'en_core_web_sm',
-                'enable_spacy': True
-            },
-            'database_advanced': {
-                'timeout': 30.0,
-                'wal_mode': 'WAL',
-                'cache_size': 1000,
-                'synchronous_mode': 'NORMAL',
-                'temp_store': 'memory'
-            },
-            'platform': {
-                'raspberry_pi_model_file': '/proc/device-tree/model',
-                'required_pi_string': 'raspberry pi'
-            }
-        }
+        return deepcopy(DEFAULT_CONFIG)
+
+    def _merge_config(self, defaults: Dict[str, Any], overrides: Dict[str, Any]) -> Dict[str, Any]:
+        """Deep-merge user config over defaults."""
+        for key, value in overrides.items():
+            if isinstance(value, dict) and isinstance(defaults.get(key), dict):
+                defaults[key] = self._merge_config(defaults[key], value)
+            else:
+                defaults[key] = value
+        return defaults
+
+    def _validate_config(self) -> None:
+        system = self.get_system_config()
+        activation_mode = str(system.get('activation_mode', ACTIVATION_AUTO)).lower()
+        if activation_mode not in VALID_ACTIVATION_MODES:
+            raise ConfigurationError(
+                f"Invalid system.activation_mode '{activation_mode}'. "
+                f"Expected one of: {', '.join(sorted(VALID_ACTIVATION_MODES))}"
+            )
     
     def _convert_env_value(self, key: str, value: str) -> Any:
         """Convert environment variable string to appropriate type."""
@@ -148,13 +183,15 @@ class ConfigManager:
                 logger.warning(f"Invalid integer value for {key}: {value}")
                 return None
         elif key in ['similarity_threshold', 'volume', 'main_loop_delay',
-                     'motion_check_interval', 'idle_delay']:
+                     'motion_check_interval', 'idle_delay', 'max_stale_seconds',
+                     'simulation_voice_interval']:
             try:
                 return float(value)
             except ValueError:
                 logger.warning(f"Invalid float value for {key}: {value}")
                 return None
-        elif key in ['enabled', 'auto_detect', 'enable_diagnostics', 'enable_spacy']:
+        elif key in ['enabled', 'auto_detect', 'enable_diagnostics', 'enable_spacy',
+                     'clear_on_shutdown', 'show_startup_message']:
             return value.lower() in ('true', '1', 'yes', 'on')
         return value
 
@@ -184,13 +221,14 @@ class ConfigManager:
         Returns:
             Configuration value or default
         """
-        current = self._config
-        try:
-            for key in keys:
-                current = current[key]
-            return current
-        except (KeyError, TypeError):
-            return default
+        with self._lock:
+            current = self._config
+            try:
+                for key in keys:
+                    current = current[key]
+                return current
+            except (KeyError, TypeError):
+                return default
     
     def get_database_path(self) -> str:
         """Get database path."""
@@ -234,7 +272,8 @@ class ConfigManager:
     
     def reload_config(self, config_path: Optional[str] = None) -> None:
         """Reload configuration from file."""
-        self._config = None
+        with self._lock:
+            self._config = None
         self.load_config(config_path)
 
 

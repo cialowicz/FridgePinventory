@@ -1,6 +1,9 @@
 """Tests for ConfigManager — env-var override and defaults path."""
 
+import pytest
+
 from pi_inventory_system.config_manager import create_config_manager
+from pi_inventory_system.exceptions import ConfigurationError
 
 
 def test_env_override_int(monkeypatch, tmp_path):
@@ -35,11 +38,34 @@ def test_env_override_wal_mode_remains_string(monkeypatch, tmp_path):
     assert cm.get("database_advanced", "wal_mode") == "DELETE"
 
 
-def test_empty_config_file_loads_as_empty_dict(tmp_path):
+def test_empty_config_file_loads_defaults(tmp_path):
     config_file = tmp_path / "empty.yaml"
     config_file.write_text("")
     cm = create_config_manager(str(config_file))
     assert cm.get("missing", default="fallback") == "fallback"
+    assert cm.get("system", "activation_mode") == "auto"
+
+
+def test_partial_config_merges_with_defaults(tmp_path):
+    config_file = tmp_path / "partial.yaml"
+    config_file.write_text("display:\n  layout:\n    items_per_row: 3\n")
+    cm = create_config_manager(str(config_file))
+    assert cm.get("display", "layout", "items_per_row") == 3
+    assert cm.get("display", "layout", "lozenge_height") == 60
+
+
+def test_invalid_yaml_raises_configuration_error(tmp_path):
+    config_file = tmp_path / "bad.yaml"
+    config_file.write_text("system: [")
+    with pytest.raises(ConfigurationError):
+        create_config_manager(str(config_file))
+
+
+def test_invalid_activation_mode_raises(tmp_path):
+    config_file = tmp_path / "bad-mode.yaml"
+    config_file.write_text("system:\n  activation_mode: teleport\n")
+    with pytest.raises(ConfigurationError):
+        create_config_manager(str(config_file))
 
 
 def test_missing_config_falls_back_to_defaults(tmp_path):

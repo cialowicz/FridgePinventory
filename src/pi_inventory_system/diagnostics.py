@@ -1,7 +1,6 @@
 # Module for system diagnostics
 
 import logging
-import time
 from typing import Tuple
 
 from .audio_feedback_manager import AudioFeedbackManager
@@ -22,21 +21,28 @@ def run_startup_diagnostics(
     motion_sensor_ok = False
     audio_ok = False
     display = None
+    display_initialized = False
 
     if is_display_supported(config_manager):
         display = initialize_display(config_manager)
         if display:
-            if display_text(display, "FridgePinventory\nstarting up...", config_manager=config_manager):
-                display_ok = True
-                logging.info("Display initialized successfully")
-            else:
-                logging.error("Failed to display startup message")
+            display_initialized = True
+            logging.info("Display initialized successfully")
+            show_startup = config_manager.get(
+                'display',
+                'show_startup_message',
+                default=False,
+            )
+            if show_startup is True:
+                display_text(
+                    display,
+                    "FridgePinventory\nstarting up...",
+                    config_manager=config_manager,
+                )
         else:
             logging.error("Failed to initialize display")
     else:
         logging.warning("Display not supported on this platform")
-
-    time.sleep(2)
 
     owns_motion_manager = motion_manager is None
     if motion_manager is None:
@@ -73,13 +79,16 @@ def run_startup_diagnostics(
         if owns_audio_manager:
             audio_manager.cleanup()
 
-    if display_ok and display:
+    if display_initialized and display:
         status_text = (
             "Diagnostics complete:\n"
-            f"Display: {'OK' if display_ok else 'FAIL'}\n"
+            "Display: OK\n"
             f"Motion: {'OK' if motion_sensor_ok else 'FAIL'}\n"
             f"Audio: {'OK' if audio_ok else 'FAIL'}"
         )
-        display_text(display, status_text, config_manager=config_manager)
+        if display_text(display, status_text, config_manager=config_manager):
+            display_ok = True
+        else:
+            logging.error("Failed to render diagnostics status")
 
     return display_ok, motion_sensor_ok, audio_ok, display

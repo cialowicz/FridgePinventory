@@ -1,8 +1,10 @@
 import logging
 import threading
+import time
 from typing import List, Optional, Tuple
 
 from .command_processor import interpret_command
+from .constants import MAX_COMMAND_LEN, MAX_QUANTITY
 from .database_manager import get_default_db_manager
 from .display_manager import display_inventory
 from .exceptions import CommandProcessingError, DatabaseError, DisplayError, InventoryError
@@ -25,6 +27,7 @@ class InventoryController:
         self.config_manager = config_manager
         self._command_history: List[Tuple[str, InventoryItem]] = []
         self._last_rendered_inventory: Optional[List[Tuple[str, int]]] = None
+        self._last_rendered_at: Optional[float] = None
         # update_display_with_inventory is invoked from both the main loop
         # (motion-active transition) and the voice worker thread (after a
         # successful process_command). The Waveshare driver writes to SPI
@@ -56,27 +59,42 @@ class InventoryController:
             logging.error(f"Invalid command type: {type(command)}")
             return False, "Invalid command format."
         
-        if len(command) > 500:
+        if len(command) > MAX_COMMAND_LEN:
             logging.warning(f"Command too long: {len(command)} characters")
             return False, "Command too long. Please use shorter commands."
         
         try:
             command_type, item = interpret_command(command, self.config_manager)
             if not command_type:
-                return False, "Command not recognized. Please try again with add, remove, set, or undo."
+                return (
+                    False,
+                    "Command not recognized. Please try again with add, remove, set, or undo.",
+            )
             
             if command_type != "undo" and item is None:
-                return False, "Could not identify a valid item and quantity. Please try again."
+                return (
+                    False,
+                    "Could not identify a valid item and quantity. Please try again.",
+                )
 
             if item and command_type != "undo":
                 if not self._validate_item(item, command_type):
-                    return False, "Invalid item details. Please check the item name and quantity."
+                    return (
+                        False,
+                        "Invalid item details. Please check the item name and quantity.",
+                    )
             
-            success, new_quantity, status_item_name = self._execute_command(command_type, item)
+            success, new_quantity, status_item_name = self._execute_command(
+                command_type,
+                item,
+            )
             if not success:
                 if command_type == "remove" and status_item_name:
                     return False, f"{status_item_name} is not in inventory."
-                return False, "Command failed to execute. Please check inventory and try again."
+                return (
+                    False,
+                    "Command failed to execute. Please check inventory and try again.",
+                )
 
             # Generate appropriate feedback message
             feedback = self._generate_feedback(command_type, item, new_quantity, status_item_name)
@@ -108,19 +126,40 @@ class InventoryController:
                 db_inventory_list = sorted(self._db_manager.get_inventory())
                 display_list = [(name, qty) for name, qty in db_inventory_list if qty > 0]
 
-                if display_list == self._last_rendered_inventory:
+                stale_after = self._display_cache_ttl_seconds()
+                cache_age = (
+                    time.monotonic() - self._last_rendered_at
+                    if self._last_rendered_at is not None else None
+                )
+                cache_is_fresh = cache_age is not None and cache_age < stale_after
+                if display_list == self._last_rendered_inventory and cache_is_fresh:
                     logging.debug("Inventory unchanged since last render; skipping refresh")
                     return
 
                 if not display_inventory(self.display, display_list, self.config_manager):
                     raise DisplayError("Display inventory render failed")
                 self._last_rendered_inventory = display_list
+                self._last_rendered_at = time.monotonic()
                 logging.info(f"Updated display with {len(display_list)} items.")
             except Exception as e:
                 logging.error(f"Failed to update display with inventory: {e}")
                 raise
+
+    def _display_cache_ttl_seconds(self) -> float:
+        if self.config_manager is None:
+            return 300.0
+        value = self.config_manager.get('display', 'max_stale_seconds', default=300.0)
+        if not isinstance(value, (int, float)) or value < 0:
+            return 300.0
+        return float(value)
     
-    def _generate_feedback(self, command_type: str, item: Optional[InventoryItem], new_quantity: Optional[int], undo_item_name: Optional[str] = None) -> str:
+    def _generate_feedback(
+        self,
+        command_type: str,
+        item: Optional[InventoryItem],
+        new_quantity: Optional[int],
+        undo_item_name: Optional[str] = None,
+    ) -> str:
         """Generate feedback message based on command type and current inventory.
         
         Args:
@@ -133,7 +172,9 @@ class InventoryController:
             Feedback message string
         """
         if command_type == "undo":
-            return f"Last change has been undone."
+            if undo_item_name:
+                return f"Last change for {undo_item_name} has been undone."
+            return "Last change has been undone."
 
         if item and new_quantity is not None:
             if new_quantity == 0:
@@ -183,13 +224,17 @@ class InventoryController:
             logging.warning(f"Zero quantity is not valid for {command_type}")
             return False
         
-        if item.quantity > 10000:
+        if item.quantity > MAX_QUANTITY:
             logging.warning(f"Quantity too large: {item.quantity}")
             return False
         
         return True
     
-    def _execute_command(self, command_type: str, item: Optional[InventoryItem]) -> Tuple[bool, Optional[int], Optional[str]]:
+    def _execute_command(
+        self,
+        command_type: str,
+        item: Optional[InventoryItem],
+    ) -> Tuple[bool, Optional[int], Optional[str]]:
         """Execute a command and return (success, new_quantity, affected_item_name)."""
         if command_type == "undo":
             try:
@@ -206,16 +251,23 @@ class InventoryController:
             return False, None, None
 
         # Normalise without mutating the caller's InventoryItem.
-        normalized_name = normalize_item_name(item.item_name, self.config_manager) or item.item_name
+        normalized_name = (
+            normalize_item_name(item.item_name, self.config_manager) or item.item_name
+        )
         normalized = InventoryItem(item_name=normalized_name, quantity=item.quantity)
-        logging.info(f"Executing {command_type} for {normalized.item_name} (qty: {normalized.quantity})")
+        logging.info(
+            f"Executing {command_type} for {normalized.item_name} "
+            f"(qty: {normalized.quantity})"
+        )
 
         try:
             if command_type == "add":
                 current_qty = self._db_manager.get_current_quantity(normalized.item_name)
-                if current_qty + normalized.quantity > 10000:
+                if current_qty + normalized.quantity > MAX_QUANTITY:
                     raise InventoryError(
-                        f"Cannot add {normalized.quantity} - would exceed maximum of 10000")
+                        f"Cannot add {normalized.quantity} - "
+                        f"would exceed maximum of {MAX_QUANTITY}"
+                    )
                 success = self._db_manager.add_item(normalized.item_name, normalized.quantity)
             elif command_type == "remove":
                 current_qty = self._db_manager.get_current_quantity(normalized.item_name)

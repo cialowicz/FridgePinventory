@@ -51,7 +51,28 @@ def test_motion_sensor_unsupported_on_non_pi(mock_check_pi, mock_config_manager)
     """Test that motion sensor is not supported on non-Pi systems."""
     manager = MotionSensorManager(config_manager=mock_config_manager)
     assert manager.is_supported() is False
+    assert manager.is_available() is False
     assert manager.detect_motion() is False
+
+
+@patch('pi_inventory_system.platform_info.is_raspberry_pi_5', return_value=False)
+@patch('pi_inventory_system.platform_info.is_raspberry_pi', return_value=True)
+def test_motion_sensor_available_after_initialization(
+    mock_check_pi,
+    mock_check_pi5,
+    mock_config_manager,
+):
+    mock_gpio = MagicMock()
+    mock_gpio.BCM = 'BCM'
+    mock_gpio.IN = 'IN'
+
+    def mock_init_gpio(self):
+        self._gpio = mock_gpio
+
+    with patch.object(MotionSensorManager, '_init_gpio_module', mock_init_gpio):
+        manager = MotionSensorManager(config_manager=mock_config_manager)
+        assert manager.is_available() is True
+        mock_gpio.setup.assert_called_once_with(4, 'IN')
 
 @patch('pi_inventory_system.platform_info.is_raspberry_pi_5', return_value=True)
 @patch('pi_inventory_system.platform_info.is_raspberry_pi', return_value=True)

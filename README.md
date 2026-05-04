@@ -109,7 +109,8 @@ python -m pi_inventory_system.main
 The application will:
 1. Initialize the database and run any pending migrations
 2. Start the display manager
-3. Begin listening for motion detection
+3. Begin listening for motion detection, or fall back to periodic voice activation
+   when motion hardware is unavailable in the default `auto` activation mode
 4. When motion is detected, it will:
    - Listen for voice commands
    - Process the commands
@@ -123,6 +124,7 @@ To exit the application, press Ctrl+C.
 - "Add N of X" - Add N quantity of item X
 - "Remove X" - Remove one of item X
 - "Remove N of X" - Remove N quantity of item X
+- "Remove all X" - Remove all of item X
 - "Set X to N" - Set quantity of item X to N
 - "Undo" - Undo the last change
 

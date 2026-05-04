@@ -8,6 +8,8 @@ import subprocess
 import threading
 from typing import Optional
 
+from .config_manager import get_default_config_manager
+
 
 logger = logging.getLogger(__name__)
 
@@ -46,13 +48,13 @@ class AudioFeedbackManager:
         Args:
             config_manager: Configuration manager instance.
         """
-        self._config = config_manager
+        self._config = config_manager or get_default_config_manager()
         self._lock = threading.Lock()
         self._sound_lock = threading.Lock()
         
         # TTS components
         self._tts_engine = None
-        self._tts_queue = queue.Queue()
+        self._tts_queue = queue.Queue(maxsize=10)
         self._tts_thread = None
         self._shutdown_event = threading.Event()
         
@@ -299,8 +301,8 @@ class AudioFeedbackManager:
         if self._tts_queue:
             try:
                 self._tts_queue.put(None, timeout=0.1)
-            except Exception:
-                pass
+            except Exception as e:
+                self.logger.debug(f"Could not enqueue TTS shutdown sentinel: {e}")
         
         # Wait for thread to finish
         if self._tts_thread and self._tts_thread.is_alive():

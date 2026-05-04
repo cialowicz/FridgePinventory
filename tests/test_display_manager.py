@@ -2,8 +2,9 @@
 
 import pytest
 from unittest.mock import patch, MagicMock
-from PIL import Image
+from PIL import Image, ImageFont
 import pi_inventory_system.display_manager
+import pi_inventory_system.waveshare_display as waveshare_display
 from pi_inventory_system.waveshare_display import WaveshareDisplay
 
 @pytest.fixture
@@ -11,6 +12,7 @@ def mock_config_manager():
     """Mock the config manager."""
     config_manager = MagicMock()
     config_manager.get_platform_config.return_value = {}
+    config_manager.get_hardware_config.return_value = {'display': {'enabled': True}}
     config_manager.get_layout_config.return_value = {}
     config_manager.get_display_config.return_value = {'colors': {}}
     config_manager.get_font_config.return_value = {'path': 'dummy_font.ttf'}
@@ -26,6 +28,12 @@ def test_is_display_supported(mock_config_manager):
     with patch('pi_inventory_system.display_manager._is_raspberry_pi') as mock_is_pi:
         mock_is_pi.return_value = False
         assert not pi_inventory_system.display_manager.is_display_supported(mock_config_manager)
+
+
+def test_is_display_supported_honors_disabled_config():
+    config_manager = MagicMock()
+    config_manager.get_hardware_config.return_value = {'display': {'enabled': False}}
+    assert not pi_inventory_system.display_manager.is_display_supported(config_manager)
 
 def test_initialize_display(mock_config_manager): 
     """Test display initialization."""
@@ -58,7 +66,11 @@ def test_display_inventory(mock_config_manager):
         mock_draw_instance.textbbox.return_value = (0, 0, 100, 20)
         mock_draw.Draw.return_value = mock_draw_instance
 
-        result = pi_inventory_system.display_manager.display_inventory(mock_display, inventory, mock_config_manager)
+        result = pi_inventory_system.display_manager.display_inventory(
+            mock_display,
+            inventory,
+            mock_config_manager,
+        )
 
         mock_display.display_image.assert_called_once()
         assert result is True
@@ -88,15 +100,34 @@ def test_display_text(mock_config_manager):
         mock_draw_instance.textbbox.return_value = (0, 0, 200, 30)
         mock_draw.Draw.return_value = mock_draw_instance
 
-        result = pi_inventory_system.display_manager.display_text(mock_display, "Test Message", mock_config_manager, font_size=24)
+        result = pi_inventory_system.display_manager.display_text(
+            mock_display,
+            "Test Message",
+            mock_config_manager,
+            font_size=24,
+        )
         
         mock_display.display_image.assert_called_once()
         assert result is True
 
 def test_display_text_no_display(mock_config_manager):
     """Test text display when no display is available."""
-    result = pi_inventory_system.display_manager.display_text(None, "Test Message", mock_config_manager)
+    result = pi_inventory_system.display_manager.display_text(
+        None,
+        "Test Message",
+        mock_config_manager,
+    )
     assert result is False
+
+
+def test_cleanup_display_does_not_clear_by_default(mock_config_manager):
+    display = MagicMock()
+    mock_config_manager.get.return_value = False
+
+    pi_inventory_system.display_manager.cleanup_display(display, mock_config_manager)
+
+    display.clear.assert_not_called()
+    display.cleanup.assert_called_once()
 
 
 def test_waveshare_display_image_propagates_hardware_failure():
@@ -135,6 +166,31 @@ def test_waveshare_display_image_falls_back_without_4gray_methods():
     assert display._display.displayed_buffer == ["basic-buffer"]
 
 
+def test_waveshare_driver_matching_accepts_exact_resolution():
+    class Module:
+        class EPD:
+            width = 800
+            height = 480
+
+    assert waveshare_display._driver_matches_display(Module, "test-driver") is True
+
+
+def test_waveshare_init_skips_test_pattern_by_default():
+    display = WaveshareDisplay.__new__(WaveshareDisplay)
+    display._initialized = False
+    display._display = None
+    display._is_mock = False
+    display._show_test_pattern = False
+    display._epd_instance = MagicMock()
+    display._epd_instance.init_4GRAY.return_value = 0
+
+    assert display.init_display() is True
+
+    display._epd_instance.Clear.assert_called_once()
+    display._epd_instance.display_4GRAY.assert_not_called()
+    assert display._display is display._epd_instance
+
+
 def test_lozenge_border_color():
     """Test lozenge border color changes based on quantity."""
     mock_draw = MagicMock()
@@ -151,7 +207,17 @@ def test_lozenge_border_color():
         'low_stock_threshold': 2
     }
     
-    pi_inventory_system.display_manager.create_lozenge(mock_draw, 0, 0, 100, 50, "Test Item", 3, mock_font, colors)
+    pi_inventory_system.display_manager.create_lozenge(
+        mock_draw,
+        0,
+        0,
+        100,
+        50,
+        "Test Item",
+        3,
+        mock_font,
+        colors,
+    )
     mock_draw.rounded_rectangle.assert_called_with(
         [(0, 0), (100, 50)], 
         radius=12,
@@ -162,7 +228,17 @@ def test_lozenge_border_color():
     
     mock_draw.reset_mock()
     
-    pi_inventory_system.display_manager.create_lozenge(mock_draw, 0, 0, 100, 50, "Test Item", 2, mock_font, colors)
+    pi_inventory_system.display_manager.create_lozenge(
+        mock_draw,
+        0,
+        0,
+        100,
+        50,
+        "Test Item",
+        2,
+        mock_font,
+        colors,
+    )
     mock_draw.rounded_rectangle.assert_called_with(
         [(0, 0), (100, 50)],
         radius=12,
@@ -173,7 +249,17 @@ def test_lozenge_border_color():
     
     mock_draw.reset_mock()
     
-    pi_inventory_system.display_manager.create_lozenge(mock_draw, 0, 0, 100, 50, "Test Item", 1, mock_font, colors)
+    pi_inventory_system.display_manager.create_lozenge(
+        mock_draw,
+        0,
+        0,
+        100,
+        50,
+        "Test Item",
+        1,
+        mock_font,
+        colors,
+    )
     mock_draw.rounded_rectangle.assert_called_with(
         [(0, 0), (100, 50)],
         radius=12,
@@ -181,3 +267,67 @@ def test_lozenge_border_color():
         outline=128,
         width=2
     )
+
+
+def test_lozenge_ellipsizes_long_text():
+    mock_draw = MagicMock()
+    mock_draw.textbbox.side_effect = lambda _pos, text, font=None: (0, 0, len(text) * 10, 20)
+    mock_font = MagicMock()
+    colors = {'background': 255, 'text': 0, 'border_normal': 0}
+
+    pi_inventory_system.display_manager.create_lozenge(
+        mock_draw,
+        0,
+        0,
+        100,
+        50,
+        "very long freezer inventory item name",
+        3,
+        mock_font,
+        colors,
+    )
+
+    rendered_text = mock_draw.text.call_args.args[1]
+    assert rendered_text.endswith("...")
+    assert len(rendered_text) * 10 <= 88
+
+
+def test_display_inventory_reports_overflow(mock_config_manager):
+    mock_display = MagicMock()
+    mock_display.WIDTH = 800
+    mock_display.HEIGHT = 480
+    mock_display.display_image = MagicMock()
+    inventory = [(f"Item {i}", i + 1) for i in range(21)]
+
+    with patch('pi_inventory_system.display_manager.create_lozenge') as lozenge, \
+         patch('pi_inventory_system.display_manager._load_font',
+               return_value=ImageFont.load_default()):
+        assert pi_inventory_system.display_manager.display_inventory(
+            mock_display,
+            inventory,
+            mock_config_manager,
+        )
+
+    rendered_names = [call.args[5] for call in lozenge.call_args_list]
+    assert rendered_names[-1] == "+2 more"
+
+
+def test_display_inventory_sanitizes_invalid_layout(mock_config_manager):
+    mock_config_manager.get_layout_config.return_value = {
+        'items_per_row': 0,
+        'spacing': -1,
+        'margin': -1,
+        'lozenge_height': 0,
+    }
+    mock_display = MagicMock()
+    mock_display.WIDTH = 800
+    mock_display.HEIGHT = 480
+    mock_display.display_image = MagicMock()
+
+    with patch('pi_inventory_system.display_manager._load_font',
+               return_value=ImageFont.load_default()):
+        assert pi_inventory_system.display_manager.display_inventory(
+            mock_display,
+            [("salmon", 1)],
+            mock_config_manager,
+        )

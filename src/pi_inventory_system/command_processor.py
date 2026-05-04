@@ -5,6 +5,7 @@ import re
 import threading
 from typing import Optional, Tuple
 
+from .constants import MAX_COMMAND_LEN, MAX_QUANTITY
 from .inventory_item import InventoryItem
 from .item_normalizer import normalize_item_name
 
@@ -38,8 +39,10 @@ DEFAULT_QUANTITIES = {
     'eight': 8, 'nine': 9, 'ten': 10, 'dozen': 12,
 }
 
-MAX_COMMAND_LEN = 500
-MAX_QUANTITY = 10000
+_QTY_PARSED = "parsed"
+_QTY_MISSING = "missing"
+_QTY_INVALID = "invalid"
+_NUMERIC_TOKEN_RE = re.compile(r"^[+-]?\d+(?:\.\d+)?$")
 
 
 def _ensure_nlp(config_manager):
@@ -80,11 +83,18 @@ def _ensure_nlp(config_manager):
         return _nlp
 
 
-def parse_quantity(text: str, config_manager) -> Optional[int]:
-    """Parse a quantity from text, accepting digits and number-words.
-    Returns None for invalid, negative, or out-of-range values."""
+def _special_quantities(config_manager) -> dict:
+    """Merge configured quantity aliases with built-in command vocabulary."""
+    configured = {}
+    if config_manager is not None:
+        configured = config_manager.get_command_config().get('special_quantities') or {}
+    return {**DEFAULT_QUANTITIES, **configured}
+
+
+def _parse_quantity_internal(text: str, config_manager) -> tuple[str, Optional[int]]:
+    """Parse a quantity and distinguish absent words from invalid quantities."""
     if not text:
-        return None
+        return _QTY_MISSING, None
     text = text.strip()
 
     try:
@@ -94,8 +104,7 @@ def parse_quantity(text: str, config_manager) -> Optional[int]:
 
     if quantity is None:
         text_lower = text.lower()
-        special = (config_manager.get_command_config().get('special_quantities')
-                   or DEFAULT_QUANTITIES)
+        special = _special_quantities(config_manager)
         if text_lower in special:
             quantity = special[text_lower]
         elif W2N_AVAILABLE:
@@ -105,11 +114,20 @@ def parse_quantity(text: str, config_manager) -> Optional[int]:
                 quantity = None
 
     if quantity is None:
-        return None
+        if _NUMERIC_TOKEN_RE.match(text):
+            return _QTY_INVALID, None
+        return _QTY_MISSING, None
     if quantity < 0 or quantity > MAX_QUANTITY:
         logging.warning(f"Quantity out of range: {quantity}")
-        return None
-    return quantity
+        return _QTY_INVALID, None
+    return _QTY_PARSED, quantity
+
+
+def parse_quantity(text: str, config_manager) -> Optional[int]:
+    """Parse a quantity from text, accepting digits and number-words.
+    Returns None for invalid, negative, out-of-range, or absent values."""
+    status, quantity = _parse_quantity_internal(text, config_manager)
+    return quantity if status == _QTY_PARSED else None
 
 
 def _classify_verb(command_text: str, config_manager) -> Optional[str]:
@@ -165,29 +183,39 @@ def _clean_item_words(words):
 def _parse_quantity_words(words, config_manager):
     """Return (quantity, consumed_words) for a leading quantity phrase."""
     if not words:
-        return None, 0
+        return None, 0, False
 
-    first = parse_quantity(words[0], config_manager)
+    first_status, first = _parse_quantity_internal(words[0], config_manager)
+    if first_status == _QTY_INVALID:
+        return None, 0, True
     if len(words) > 1 and words[1] == "dozen":
         if words[0] in ("a", "an", "one"):
-            return 12, 2
+            return 12, 2, False
         if first is not None:
-            return first * 12, 2
+            quantity = first * 12
+            if quantity > MAX_QUANTITY:
+                logging.warning(f"Quantity out of range: {quantity}")
+                return None, 0, True
+            return quantity, 2, False
 
     if first is not None:
-        return first, 1
+        return first, 1, False
 
     if len(words) > 1 and words[0] in ("a", "an"):
-        second = parse_quantity(words[1], config_manager)
+        second_status, second = _parse_quantity_internal(words[1], config_manager)
+        if second_status == _QTY_INVALID:
+            return None, 0, True
         if second is not None:
-            return second, 2
+            return second, 2, False
 
     for end in range(min(4, len(words)), 1, -1):
-        quantity = parse_quantity(" ".join(words[:end]), config_manager)
-        if quantity is not None:
-            return quantity, end
+        status, quantity = _parse_quantity_internal(" ".join(words[:end]), config_manager)
+        if status == _QTY_PARSED:
+            return quantity, end, False
+        if status == _QTY_INVALID:
+            return None, 0, True
 
-    return None, 0
+    return None, 0, False
 
 
 def _extract_set_arguments(command_text: str, config_manager):
@@ -197,10 +225,12 @@ def _extract_set_arguments(command_text: str, config_manager):
         return None, None
     match = re.search(r"(.+?)\s+to\s+(.+?)\s*$", text)
     if match:
-        return match.group(1).strip(), parse_quantity(match.group(2), config_manager)
+        status, quantity = _parse_quantity_internal(match.group(2), config_manager)
+        return match.group(1).strip(), quantity if status == _QTY_PARSED else None
     match = re.search(r"(.+?)\s+(\S+)\s*$", text)
     if match:
-        return match.group(1).strip(), parse_quantity(match.group(2), config_manager)
+        status, quantity = _parse_quantity_internal(match.group(2), config_manager)
+        return match.group(1).strip(), quantity if status == _QTY_PARSED else None
     return None, None
 
 
@@ -212,14 +242,22 @@ def _extract_add_remove_arguments(command_text: str, command_type: str, config_m
     if not words:
         return None, None
 
-    quantity, consumed = _parse_quantity_words(words, config_manager)
+    if command_type == "remove" and words[0] == "all":
+        item_words = _clean_item_words(words[1:])
+        return " ".join(item_words) or None, MAX_QUANTITY
+
+    quantity, consumed, invalid_quantity = _parse_quantity_words(words, config_manager)
+    if invalid_quantity:
+        return None, None
     if quantity is not None:
         item_words = _clean_item_words(words[consumed:])
         return " ".join(item_words) or None, quantity
 
     for i, word in enumerate(words):
-        qty = parse_quantity(word, config_manager)
-        if qty is not None:
+        status, qty = _parse_quantity_internal(word, config_manager)
+        if status == _QTY_INVALID:
+            return None, None
+        if status == _QTY_PARSED:
             item_words = _clean_item_words(words[:i] + words[i + 1:])
             return " ".join(item_words) or None, qty
     return " ".join(_clean_item_words(words)) or None, None

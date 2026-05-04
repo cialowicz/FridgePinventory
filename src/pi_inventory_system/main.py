@@ -10,6 +10,14 @@ from typing import Optional
 
 from .audio_feedback_manager import AudioFeedbackManager
 from .config_manager import create_config_manager
+from .constants import (
+    ACTIVATION_ALWAYS_LISTEN,
+    ACTIVATION_AUTO,
+    ACTIVATION_MANUAL,
+    ACTIVATION_MOTION,
+    ACTIVATION_SIMULATION,
+    VALID_ACTIVATION_MODES,
+)
 from .database_manager import create_database_manager
 from .diagnostics import run_startup_diagnostics
 from .display_manager import cleanup_display, initialize_display
@@ -100,14 +108,19 @@ class FridgePinventoryApp:
         signal.signal(signal.SIGTERM, self._signal_handler)
 
         self.logger.info(
-            f"Application starting. User: {os.getenv('USER', 'N/A')}, Home: {os.getenv('HOME', 'N/A')}")
+            "Application starting. "
+            f"User: {os.getenv('USER', 'N/A')}, Home: {os.getenv('HOME', 'N/A')}"
+        )
 
     def _setup_logging(self) -> None:
         system_config = self.config_manager.get_system_config()
         log_level = getattr(logging, system_config.get('log_level', 'INFO').upper(), logging.INFO)
         logging.basicConfig(
             level=log_level,
-            format='%(asctime)s - %(name)s - %(levelname)s - [%(pathname)s:%(lineno)d] - %(message)s',
+            format=(
+                '%(asctime)s - %(name)s - %(levelname)s - '
+                '[%(pathname)s:%(lineno)d] - %(message)s'
+            ),
             handlers=[logging.StreamHandler()],
         )
 
@@ -144,10 +157,38 @@ class FridgePinventoryApp:
 
     def _motion_sensor_available(self) -> bool:
         try:
-            return self.motion_manager.is_supported()
+            is_available = getattr(self.motion_manager, 'is_available', None)
+            if callable(is_available):
+                available = is_available()
+                if isinstance(available, bool):
+                    return available
+            return bool(self.motion_manager.is_supported())
         except Exception as e:
             self.logger.error(f"Motion sensor support check failed: {e}")
             return False
+
+    def _activation_mode(self) -> str:
+        system_config = self.config_manager.get_system_config()
+        mode = str(system_config.get('activation_mode', ACTIVATION_AUTO)).lower()
+        if mode not in VALID_ACTIVATION_MODES:
+            self.logger.warning(f"Invalid activation_mode={mode}; falling back to auto")
+            return ACTIVATION_AUTO
+        return mode
+
+    def _simulation_voice_interval(self) -> float:
+        system_config = self.config_manager.get_system_config()
+        interval = system_config.get('simulation_voice_interval', 5.0)
+        if not isinstance(interval, (int, float)) or interval <= 0:
+            return 5.0
+        return float(interval)
+
+    def _build_motion_loop(self) -> MotionLoop:
+        system_config = self.config_manager.get_system_config()
+        return MotionLoop(
+            motion_check_interval=system_config.get('motion_check_interval', 0.5),
+            idle_delay=system_config.get('idle_delay', 1.0),
+            active_delay=system_config.get('main_loop_delay', 0.1),
+        )
 
     def _signal_handler(self, signum, _frame):
         self.logger.info(f"Received signal {signum}, initiating shutdown...")
@@ -182,6 +223,12 @@ class FridgePinventoryApp:
                     self.audio_feedback.output_error(feedback or "Command failed.")
         except Exception as e:
             self.logger.error(f"Error handling voice command: {e}")
+            if voice_manager is not self._owned_voice_manager or not self.running:
+                return
+            try:
+                self.audio_feedback.output_error("Voice command failed. Please try again.")
+            except Exception as feedback_error:
+                self.logger.error(f"Failed to output voice error feedback: {feedback_error}")
 
     def _check_voice_future(self) -> bool:
         """Return True when a voice task is still running."""
@@ -305,6 +352,47 @@ class FridgePinventoryApp:
         self._voice_future = _VoiceTask(self._handle_voice_command, bound_manager)
         self._voice_future.start()
 
+    def _run_without_motion(
+        self,
+        activation_mode: str,
+        next_voice_at: float,
+    ) -> tuple[bool, float]:
+        """Handle one loop iteration when motion hardware is unavailable.
+
+        Returns (continue_without_motion, next_voice_at). If continue_without_motion
+        is False, the caller should resume normal motion polling.
+        """
+        if activation_mode == ACTIVATION_MOTION:
+            self.shutdown_event.wait(timeout=1.0)
+            return True, next_voice_at
+        if activation_mode == ACTIVATION_MANUAL:
+            self.logger.debug("Manual activation mode selected; waiting")
+            self.shutdown_event.wait(timeout=1.0)
+            return True, next_voice_at
+
+        now = time.time()
+        interval = self._simulation_voice_interval()
+        if now >= next_voice_at:
+            self.logger.info("Motion unavailable; attempting voice activation")
+            self._kick_voice_command()
+            next_voice_at = now + interval
+        sleep_for = max(0.1, min(1.0, next_voice_at - now))
+        self.shutdown_event.wait(timeout=sleep_for)
+        return True, next_voice_at
+
+    def _handle_motion_decision(self, loop, decision, display_ok: bool, previous_mode: str) -> str:
+        if decision.enter_idle:
+            self.logger.info("Entering idle mode")
+        if decision.new_motion:
+            self.logger.info("Motion detected, transitioning to active mode")
+            if display_ok:
+                self._refresh_display_best_effort()
+            self._kick_voice_command()
+
+        if previous_mode == ACTIVE and loop.mode != ACTIVE:
+            self.logger.info("Motion ended, deactivating")
+        return loop.mode
+
     def run(self) -> None:
         if not self.initialize():
             self.logger.error("Failed to initialize application")
@@ -317,21 +405,28 @@ class FridgePinventoryApp:
             if display_ok:
                 self._refresh_display_best_effort()
 
-            system_config = self.config_manager.get_system_config()
-            loop = MotionLoop(
-                motion_check_interval=system_config.get('motion_check_interval', 0.5),
-                idle_delay=system_config.get('idle_delay', 1.0),
-                active_delay=system_config.get('main_loop_delay', 0.1),
-            )
+            loop = self._build_motion_loop()
 
             previous_mode = loop.mode
             motion_available = motion_ok
             motion_retry_announced = False
+            next_voice_at = 0.0
+            activation_mode = self._activation_mode()
             if not motion_available:
-                self.logger.warning("Motion sensor unavailable at startup; will retry until it returns")
+                self.logger.warning(
+                    "Motion sensor unavailable at startup; will retry until it returns"
+                )
                 motion_retry_announced = True
             while self.running and not self.shutdown_event.is_set():
                 self._check_voice_future()
+                activation_mode = self._activation_mode()
+
+                if activation_mode == ACTIVATION_MANUAL:
+                    self.shutdown_event.wait(timeout=1.0)
+                    continue
+                if activation_mode in (ACTIVATION_ALWAYS_LISTEN, ACTIVATION_SIMULATION):
+                    _, next_voice_at = self._run_without_motion(activation_mode, next_voice_at)
+                    continue
 
                 if not motion_available:
                     motion_available = self._motion_sensor_available()
@@ -342,22 +437,25 @@ class FridgePinventoryApp:
                         if not motion_retry_announced:
                             self.logger.warning("Motion sensor unavailable; will retry")
                             motion_retry_announced = True
-                        self.shutdown_event.wait(timeout=1.0)
+                        _, next_voice_at = self._run_without_motion(
+                            activation_mode,
+                            next_voice_at,
+                        )
                         continue
 
                 decision = loop.step(time.time(), self.motion_manager.detect_motion)
-
-                if decision.enter_idle:
-                    self.logger.info("Entering idle mode")
-                if decision.new_motion:
-                    self.logger.info("Motion detected, transitioning to active mode")
-                    if display_ok:
-                        self._refresh_display_best_effort()
-                    self._kick_voice_command()
-
-                if previous_mode == ACTIVE and loop.mode != ACTIVE:
-                    self.logger.info("Motion ended, deactivating")
-                previous_mode = loop.mode
+                if (
+                    hasattr(self.motion_manager, 'is_healthy')
+                    and not self.motion_manager.is_healthy()
+                ):
+                    motion_available = False
+                    self.logger.warning("Motion sensor became unhealthy; entering recovery")
+                previous_mode = self._handle_motion_decision(
+                    loop,
+                    decision,
+                    display_ok,
+                    previous_mode,
+                )
 
                 if loop.mode == IDLE:
                     self.shutdown_event.wait(timeout=decision.sleep_seconds)
@@ -387,7 +485,9 @@ class FridgePinventoryApp:
             ("audio feedback", self.audio_feedback.cleanup),
         ]
         if self.display:
-            cleanup_steps.append(("display", lambda: cleanup_display(self.display)))
+            cleanup_steps.append(
+                ("display", lambda: cleanup_display(self.display, self.config_manager))
+            )
         if hasattr(self.db_manager, 'cleanup'):
             cleanup_steps.append(("database", self.db_manager.cleanup))
 

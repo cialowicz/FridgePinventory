@@ -21,6 +21,9 @@ display:
     border_normal: "black"
     border_low_stock: "yellow"
     low_stock_threshold: 2
+  clear_on_shutdown: false
+  max_stale_seconds: 300.0
+  show_startup_message: false
 
 # Audio Configuration
 audio:
@@ -54,6 +57,8 @@ system:
   idle_delay: 1.0  # seconds
   log_level: "INFO"  # DEBUG, INFO, WARNING, ERROR
   enable_diagnostics: true
+  activation_mode: "auto"  # auto, motion, simulation, always_listen, manual
+  simulation_voice_interval: 5.0  # seconds between voice attempts without motion hardware
   
 # Hardware Configuration
 hardware:

@@ -1,7 +1,7 @@
 """Tests for the diagnostics module."""
 
 import pytest
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 from pi_inventory_system.diagnostics import run_startup_diagnostics
 
@@ -46,17 +46,30 @@ def cfg():
     return MagicMock()
 
 
-def test_diagnostics_display_success(mock_display_init, mock_motion_manager, mock_supported, mock_audio, cfg):
+def test_diagnostics_display_success(
+    mock_display_init,
+    mock_motion_manager,
+    mock_supported,
+    mock_audio,
+    cfg,
+):
     with patch('pi_inventory_system.diagnostics.display_text', return_value=True) as mock_text:
         display_ok, motion_ok, audio_ok, _ = run_startup_diagnostics(cfg)
         assert (display_ok, motion_ok, audio_ok) == (True, True, True)
-        mock_text.assert_has_calls([
-            call(mock_display_init, "FridgePinventory\nstarting up...", config_manager=cfg),
-            call(mock_display_init, "Diagnostics complete:\nDisplay: OK\nMotion: OK\nAudio: OK", config_manager=cfg),
-        ], any_order=False)
+        mock_text.assert_called_once_with(
+            mock_display_init,
+            "Diagnostics complete:\nDisplay: OK\nMotion: OK\nAudio: OK",
+            config_manager=cfg,
+        )
 
 
-def test_diagnostics_display_failure(mock_display_init, mock_motion_manager, mock_supported, mock_audio, cfg):
+def test_diagnostics_display_failure(
+    mock_display_init,
+    mock_motion_manager,
+    mock_supported,
+    mock_audio,
+    cfg,
+):
     with patch('pi_inventory_system.diagnostics.display_text', return_value=False):
         display_ok, motion_ok, audio_ok, _ = run_startup_diagnostics(cfg)
         assert display_ok is False
@@ -64,14 +77,26 @@ def test_diagnostics_display_failure(mock_display_init, mock_motion_manager, moc
         assert audio_ok is True
 
 
-def test_diagnostics_motion_sensor_failure(mock_display_init, mock_motion_manager, mock_supported, mock_audio, cfg):
+def test_diagnostics_motion_sensor_failure(
+    mock_display_init,
+    mock_motion_manager,
+    mock_supported,
+    mock_audio,
+    cfg,
+):
     mock_motion_manager.detect_motion.side_effect = Exception("sensor explosion")
     with patch('pi_inventory_system.diagnostics.display_text', return_value=True):
         _, motion_ok, _, _ = run_startup_diagnostics(cfg)
         assert motion_ok is False
 
 
-def test_diagnostics_motion_sensor_unhealthy(mock_display_init, mock_motion_manager, mock_supported, mock_audio, cfg):
+def test_diagnostics_motion_sensor_unhealthy(
+    mock_display_init,
+    mock_motion_manager,
+    mock_supported,
+    mock_audio,
+    cfg,
+):
     mock_motion_manager.is_healthy.return_value = False
     mock_motion_manager.last_error = "pinctrl failed"
     with patch('pi_inventory_system.diagnostics.display_text', return_value=True):
@@ -108,7 +133,13 @@ def test_diagnostics_does_not_cleanup_injected_managers(cfg):
     audio.cleanup.assert_not_called()
 
 
-def test_diagnostics_audio_failure(mock_display_init, mock_motion_manager, mock_supported, mock_audio, cfg):
+def test_diagnostics_audio_failure(
+    mock_display_init,
+    mock_motion_manager,
+    mock_supported,
+    mock_audio,
+    cfg,
+):
     mock_audio.play_sound.return_value = False
     with patch('pi_inventory_system.diagnostics.display_text', return_value=True):
         _, _, audio_ok, _ = run_startup_diagnostics(cfg)

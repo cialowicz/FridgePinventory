@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock, patch
 
-from pi_inventory_system.voice_recognition_manager import VoiceRecognitionManager
+from pi_inventory_system.voice_recognition_manager import VoiceRecognitionManager, sr
 
 
 def _config(cooldown):
@@ -58,3 +58,31 @@ def test_initialization_failure_respects_retry_cooldown():
 
         assert manager.initialize() is False
         assert microphone.call_count == 3
+
+
+def test_recognition_falls_back_from_sphinx_to_google():
+    manager = VoiceRecognitionManager(config_manager=_config(cooldown=0))
+    manager._recognizer = MagicMock()
+    manager._recognizer.recognize_sphinx.side_effect = sr.UnknownValueError()
+    manager._recognizer.recognize_google.return_value = "Add One Salmon"
+
+    result = manager._recognize_with_fallback(
+        object(),
+        {'engine': 'sphinx', 'enable_google_fallback': True},
+    )
+
+    assert result == "add one salmon"
+
+
+def test_recognition_returns_none_when_all_engines_fail():
+    manager = VoiceRecognitionManager(config_manager=_config(cooldown=0))
+    manager._recognizer = MagicMock()
+    manager._recognizer.recognize_sphinx.side_effect = sr.UnknownValueError()
+    manager._recognizer.recognize_google.side_effect = sr.RequestError("offline")
+
+    result = manager._recognize_with_fallback(
+        object(),
+        {'engine': 'google', 'enable_sphinx_fallback': True},
+    )
+
+    assert result is None

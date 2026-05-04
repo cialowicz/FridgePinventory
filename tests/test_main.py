@@ -92,6 +92,17 @@ def test_handle_voice_command_outputs_error(app_context):
     audio.output_confirmation.assert_not_called()
 
 
+def test_handle_voice_command_exception_outputs_error_feedback(app_context):
+    app, _, _, _, _, _, voice, audio = app_context
+    app.running = True
+    app.controller = MagicMock()
+    voice.recognize_speech.side_effect = RuntimeError("mic exploded")
+
+    app._handle_voice_command()
+
+    audio.output_error.assert_called_once_with("Voice command failed. Please try again.")
+
+
 def test_kick_voice_command_does_not_block_motion_loop(app_context):
     app, _, _, _, _, _, _, _ = app_context
 
@@ -346,6 +357,23 @@ def test_run_retries_motion_after_failed_diagnostics(app_context):
         app.run()
 
     motion.is_supported.assert_called()
+    app._kick_voice_command.assert_called_once_with()
+
+
+def test_run_auto_mode_uses_voice_when_motion_is_unavailable(app_context):
+    app, _, _, _, _, motion, _, _ = app_context
+    motion.is_supported.return_value = False
+
+    def stop_after_voice(*_args, **_kwargs):
+        app.running = False
+        app.shutdown_event.set()
+
+    app._kick_voice_command = MagicMock(side_effect=stop_after_voice)
+
+    with patch('pi_inventory_system.main.run_startup_diagnostics',
+               return_value=(False, False, False, None)):
+        app.run()
+
     app._kick_voice_command.assert_called_once_with()
 
 

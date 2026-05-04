@@ -75,8 +75,8 @@ def normalize_item_name(item_name, config_manager):
     
     # Then try fuzzy matching
     best_match = None
-    command_config = config_manager.get_command_config()
-    best_ratio = command_config.get('similarity_threshold', 0.8)  # Minimum similarity threshold from config
+    command_config = config_manager.get_command_config() if config_manager is not None else {}
+    best_ratio = command_config.get('similarity_threshold', 0.8)
     
     for base_name, synonyms in ITEM_SYNONYMS.items():
         # Check against base name

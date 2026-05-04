@@ -28,9 +28,15 @@ def test_run_diagnostic_returns_nonzero_when_no_hardware(capsys):
          patch('pi_inventory_system.diagnostic_cli.MotionSensorManager') as motion_cls, \
          patch('pi_inventory_system.diagnostic_cli.AudioFeedbackManager') as audio_cls, \
          patch('pi_inventory_system.diagnostic_cli.VoiceRecognitionManager') as voice_cls:
-        motion = MagicMock(); motion.is_supported.return_value = False; motion_cls.return_value = motion
-        audio = MagicMock(); audio.play_sound.return_value = False; audio_cls.return_value = audio
-        voice = MagicMock(); voice.initialize.return_value = False; voice_cls.return_value = voice
+        motion = MagicMock()
+        motion.is_supported.return_value = False
+        motion_cls.return_value = motion
+        audio = MagicMock()
+        audio.play_sound.return_value = False
+        audio_cls.return_value = audio
+        voice = MagicMock()
+        voice.initialize.return_value = False
+        voice_cls.return_value = voice
 
         rc = diagnostic_cli.run_diagnostic(cfg)
     assert rc == 1

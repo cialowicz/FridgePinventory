@@ -71,6 +71,28 @@ def test_speak_returns_false_when_tts_initialization_fails(cfg):
         assert manager.speak("hello") is False
 
 
+def test_output_confirmation_combines_speech_and_success_sound(cfg):
+    with patch('pi_inventory_system.audio_feedback_manager.PYTTSX3_AVAILABLE', False):
+        manager = AudioFeedbackManager(config_manager=cfg)
+    manager.speak = MagicMock(return_value=True)
+    manager.play_sound = MagicMock(return_value=True)
+
+    assert manager.output_confirmation("added salmon") is True
+    manager.speak.assert_called_once_with("added salmon")
+    manager.play_sound.assert_called_once_with('success')
+
+
+def test_output_error_reports_failure_when_sound_fails(cfg):
+    with patch('pi_inventory_system.audio_feedback_manager.PYTTSX3_AVAILABLE', False):
+        manager = AudioFeedbackManager(config_manager=cfg)
+    manager.speak = MagicMock(return_value=True)
+    manager.play_sound = MagicMock(return_value=False)
+
+    assert manager.output_error("bad command") is False
+    manager.speak.assert_called_once_with("bad command")
+    manager.play_sound.assert_called_once_with('error')
+
+
 def test_circuit_breaker_disables_after_repeated_failures(cfg, tmp_path):
     sound = tmp_path / "s.wav"
     sound.write_bytes(b"")

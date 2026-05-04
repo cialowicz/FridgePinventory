@@ -25,8 +25,23 @@ def _is_raspberry_pi(config_manager):
         required_string=platform_config.get('required_pi_string', 'raspberry pi'),
     )
 
+def _display_hardware_config(config_manager):
+    """Return the hardware.display config as a dict, tolerating test doubles."""
+    try:
+        hardware = config_manager.get_hardware_config() if config_manager is not None else {}
+    except Exception:
+        hardware = {}
+    if not isinstance(hardware, dict):
+        return {}
+    display_config = hardware.get('display', {})
+    return display_config if isinstance(display_config, dict) else {}
+
 def is_display_supported(config_manager) -> bool:
     """Checks if the display is supported on the current platform."""
+    display_config = _display_hardware_config(config_manager)
+    if not display_config.get('enabled', True):
+        logger.info("Display disabled in configuration")
+        return False
     supported = _is_raspberry_pi(config_manager)
     logger.info(f"Display supported: {supported}")
     return supported
@@ -44,7 +59,7 @@ def initialize_display(config_manager):
         return None
 
     try:
-        display = WaveshareDisplay()
+        display = WaveshareDisplay(config_manager=config_manager)
         if not display.initialize():
             logger.warning("Display initialization returned mock; treating as unavailable")
             return None
@@ -54,6 +69,41 @@ def initialize_display(config_manager):
         logger.error(f"Failed to initialize display: {e}")
         logger.error(f"Traceback: {traceback.format_exc()}")
         return None
+
+def _text_width(draw, text, font) -> int:
+    bbox = draw.textbbox((0, 0), text, font=font)
+    return bbox[2] - bbox[0]
+
+
+def _fit_text(draw, text, font, max_width) -> str:
+    """Ellipsize text to fit inside max_width."""
+    if _text_width(draw, text, font) <= max_width:
+        return text
+    suffix = "..."
+    if _text_width(draw, suffix, font) > max_width:
+        return ""
+    low, high = 0, len(text)
+    best = suffix
+    while low <= high:
+        mid = (low + high) // 2
+        candidate = text[:mid].rstrip() + suffix
+        if _text_width(draw, candidate, font) <= max_width:
+            best = candidate
+            low = mid + 1
+        else:
+            high = mid - 1
+    return best
+
+
+def _positive_int(value, default: int, *, allow_zero: bool = False) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    if parsed < 0 or (parsed == 0 and not allow_zero):
+        return default
+    return parsed
+
 
 def create_lozenge(draw, x, y, width, height, item_name, quantity, font, colors):
     """Create a lozenge shape with item name and quantity.
@@ -75,7 +125,12 @@ def create_lozenge(draw, x, y, width, height, item_name, quantity, font, colors)
     low_stock_threshold = colors.get('low_stock_threshold', 2)
     
     # Determine border color based on quantity
-    border_color = border_low_stock if quantity <= low_stock_threshold else border_normal
+    quantity_is_number = isinstance(quantity, (int, float))
+    border_color = (
+        border_low_stock
+        if quantity_is_number and quantity <= low_stock_threshold
+        else border_normal
+    )
     
     # Draw rounded rectangle (lozenge)
     radius = min(width, height) // 4
@@ -88,7 +143,8 @@ def create_lozenge(draw, x, y, width, height, item_name, quantity, font, colors)
     )
     
     # Add item name and quantity
-    text = f"{item_name}: {quantity}"
+    text = item_name if quantity is None else f"{item_name}: {quantity}"
+    text = _fit_text(draw, text, font, max(0, width - 12))
     
     # Get text size
     text_bbox = draw.textbbox((0, 0), text, font=font)
@@ -138,10 +194,10 @@ def display_inventory(display, inventory, config_manager):
             return
 
         layout_config = config_manager.get_layout_config()
-        items_per_row = layout_config.get('items_per_row', 4)
-        margin = layout_config.get('margin', 20)
-        spacing = layout_config.get('spacing', 15)
-        lozenge_height = layout_config.get('lozenge_height', 60)
+        items_per_row = _positive_int(layout_config.get('items_per_row'), 4)
+        margin = _positive_int(layout_config.get('margin'), 20, allow_zero=True)
+        spacing = _positive_int(layout_config.get('spacing'), 15, allow_zero=True)
+        lozenge_height = _positive_int(layout_config.get('lozenge_height'), 60)
 
         available_width = display.WIDTH - (2 * margin) - ((items_per_row - 1) * spacing)
         lozenge_width = available_width // items_per_row
@@ -161,14 +217,20 @@ def display_inventory(display, inventory, config_manager):
 
         start_y = 50
         items_displayed = 0
-        for i, item in enumerate(inventory[:max_items]):
+        inventory_to_render = list(inventory)
+        if len(inventory_to_render) > max_items and max_items > 0:
+            hidden_count = len(inventory_to_render) - max_items + 1
+            inventory_to_render = inventory_to_render[:max_items - 1]
+            inventory_to_render.append((f"+{hidden_count} more", None))
+
+        for i, item in enumerate(inventory_to_render[:max_items]):
             if not isinstance(item, (tuple, list)) or len(item) < 2:
                 logger.warning(f"Invalid inventory item format at index {i}: {item}")
                 continue
             item_name, quantity = item
             if not isinstance(item_name, str):
                 item_name = str(item_name)
-            if not isinstance(quantity, (int, float)):
+            if quantity is not None and not isinstance(quantity, (int, float)):
                 try:
                     quantity = int(quantity)
                 except (ValueError, TypeError):
@@ -187,7 +249,7 @@ def display_inventory(display, inventory, config_manager):
                            item_name, quantity, font, color_config)
             items_displayed += 1
 
-        timestamp = time.strftime("%Y-%m-%d %H:%M")
+        timestamp = time.strftime("Updated %Y-%m-%d %H:%M")
         ts_bbox = draw.textbbox((0, 0), timestamp, font=timestamp_font)
         draw.text((display.WIDTH - (ts_bbox[2] - ts_bbox[0]) - 10,
                    display.HEIGHT - 25),
@@ -229,7 +291,7 @@ def _load_font(config_manager, size=18):
     _FONT_CACHE[cache_key] = fallback
     return fallback
 
-def cleanup_display(display):
+def cleanup_display(display, config_manager=None):
     """Clean up display resources.
     
     Args:
@@ -239,8 +301,13 @@ def cleanup_display(display):
         return
     
     try:
-        # Clear the display before cleanup
-        if hasattr(display, 'clear'):
+        clear_on_shutdown = False
+        if config_manager is not None:
+            clear_on_shutdown = bool(
+                config_manager.get('display', 'clear_on_shutdown', default=False)
+            )
+
+        if clear_on_shutdown and hasattr(display, 'clear'):
             display.clear()
             logger.info("Display cleared")
         
@@ -279,11 +346,18 @@ def display_text(display, text, config_manager, font_size=24):
                 else:
                     if current_line:
                         text_lines.append(current_line)
-                    current_line = word
+                        if _text_width(draw, word, font) <= max_width:
+                            current_line = word
+                        else:
+                            text_lines.append(_fit_text(draw, word, font, max_width))
+                            current_line = ""
+                    else:
+                        text_lines.append(_fit_text(draw, word, font, max_width))
+                        current_line = ""
             if current_line:
                 text_lines.append(current_line)
 
-        line_height = font.size + 8
+        line_height = getattr(font, "size", font_size) + 8
         total_height = len(text_lines) * line_height
         start_y = (display.HEIGHT - total_height) // 2
 

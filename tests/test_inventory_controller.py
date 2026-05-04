@@ -12,7 +12,9 @@ from pi_inventory_system.inventory_item import InventoryItem
 @pytest.fixture
 def controller():
     """Create a controller instance with mocked dependencies."""
-    with patch('pi_inventory_system.inventory_controller.get_default_db_manager') as mock_db_manager:
+    with patch(
+        'pi_inventory_system.inventory_controller.get_default_db_manager'
+    ) as mock_db_manager:
         mock_display = Mock()
         mock_config_manager = MagicMock()
         mock_config_manager.get_command_config.return_value = {'similarity_threshold': 0.8}
@@ -40,7 +42,9 @@ def test_process_command_invalid_command(controller):
               return_value=(None, None)):
         success, feedback = controller.process_command("invalid command")
         assert not success
-        assert feedback == "Command not recognized. Please try again with add, remove, set, or undo."
+        assert feedback == (
+            "Command not recognized. Please try again with add, remove, set, or undo."
+        )
 
 
 def test_process_command_failed_execution(controller):
@@ -97,6 +101,21 @@ def test_process_command_remove_missing_item(controller):
         assert not success
         assert feedback == "chicken is not in inventory."
         controller.db.remove_item.assert_not_called()
+
+
+def test_process_command_remove_all_clamps_to_zero(controller):
+    item = InventoryItem(item_name="chicken", quantity=10000)
+    controller._db_manager.get_current_quantity.side_effect = [3, 0]
+    controller.db.remove_item.return_value = True
+
+    with patch('pi_inventory_system.inventory_controller.interpret_command',
+              return_value=("remove", item)), \
+         patch('pi_inventory_system.inventory_controller.display_inventory'):
+        success, feedback = controller.process_command("remove all chicken")
+
+    assert success
+    assert feedback == "chicken has been removed from inventory."
+    controller.db.remove_item.assert_called_with("chicken", 10000)
 
 
 def test_process_command_missing_item_has_specific_feedback(controller):
@@ -233,7 +252,7 @@ def test_process_command_successful_undo(controller):
          patch('pi_inventory_system.inventory_controller.display_inventory'):
         success, feedback = controller.process_command("undo")
         assert success
-        assert feedback == "Last change has been undone."
+        assert feedback == "Last change for chicken has been undone."
         controller.db.undo_last_change.assert_called_once()
 
 
@@ -256,7 +275,9 @@ def test_update_display_with_inventory(controller):
     """Display only shows items with quantity > 0, sorted by name."""
     controller.db.get_inventory.return_value = [("steak", 1), ("chicken breast", 2)]
 
-    with patch('pi_inventory_system.inventory_controller.display_inventory') as mock_display_inventory:
+    with patch(
+        'pi_inventory_system.inventory_controller.display_inventory'
+    ) as mock_display_inventory:
         controller.update_display_with_inventory()
         actual_list = mock_display_inventory.call_args[0][1]
         assert actual_list == [('chicken breast', 2), ('steak', 1)]
@@ -265,7 +286,9 @@ def test_update_display_with_inventory(controller):
 def test_update_display_skips_when_unchanged(controller):
     """Re-rendering the same inventory does not call display_inventory twice."""
     controller.db.get_inventory.return_value = [("steak", 1)]
-    with patch('pi_inventory_system.inventory_controller.display_inventory') as mock_display_inventory:
+    with patch(
+        'pi_inventory_system.inventory_controller.display_inventory'
+    ) as mock_display_inventory:
         controller.update_display_with_inventory()
         controller.update_display_with_inventory()
         assert mock_display_inventory.call_count == 1
@@ -274,7 +297,9 @@ def test_update_display_skips_when_unchanged(controller):
 def test_update_display_drops_zero_quantity_rows(controller):
     """Rows that came back with quantity 0 are not rendered."""
     controller.db.get_inventory.return_value = [("steak", 0), ("salmon", 3)]
-    with patch('pi_inventory_system.inventory_controller.display_inventory') as mock_display_inventory:
+    with patch(
+        'pi_inventory_system.inventory_controller.display_inventory'
+    ) as mock_display_inventory:
         controller.update_display_with_inventory()
         actual_list = mock_display_inventory.call_args[0][1]
         assert actual_list == [('salmon', 3)]

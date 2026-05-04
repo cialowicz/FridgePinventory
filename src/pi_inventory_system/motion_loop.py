@@ -53,9 +53,14 @@ class MotionLoop:
         """Advance the state machine one tick. read_motion is a callable
         returning bool — it is invoked at most once per step()."""
         if (now - self.last_check_time) < self._check_interval():
-            return Decision(new_motion=False,
-                            sleep_seconds=self.active_delay if self.mode == ACTIVE else self._check_interval(),
-                            enter_idle=False)
+            sleep_seconds = (
+                self.active_delay if self.mode == ACTIVE else self._check_interval()
+            )
+            return Decision(
+                new_motion=False,
+                sleep_seconds=sleep_seconds,
+                enter_idle=False,
+            )
 
         self.last_check_time = now
         in_cooldown = (self.last_motion_time is not None

@@ -82,6 +82,17 @@ class MotionSensorManager:
         """Return whether the last hardware interaction completed without error."""
         return self._last_error is None
 
+    def initialize(self) -> bool:
+        """Initialize the configured motion sensor if the platform supports it."""
+        if not self.is_supported():
+            return False
+        with self._lock:
+            return self._ensure_initialized()
+
+    def is_available(self) -> bool:
+        """Return True only when motion hardware is supported and initialised."""
+        return self.initialize() and self.is_healthy()
+
     def _set_error(self, message: str) -> None:
         self._last_error = message
         self.logger.error(message)
@@ -105,7 +116,9 @@ class MotionSensorManager:
             self._clear_error()
             return True
         except ImportError:
-            self.logger.debug("gpiozero not available for Pi 5 motion reads; falling back to pinctrl")
+            self.logger.debug(
+                "gpiozero not available for Pi 5 motion reads; falling back to pinctrl"
+            )
             return False
         except Exception as e:
             self._gpiozero_sensor = None
@@ -140,7 +153,8 @@ class MotionSensorManager:
                     return False
             else:
                 self._set_error(
-                    "Permission denied for pinctrl. Configure udev rules or set allow_sudo in config"
+                    "Permission denied for pinctrl. Configure udev rules or set "
+                    "allow_sudo in config"
                 )
                 return False
         except Exception as e:
@@ -172,7 +186,13 @@ class MotionSensorManager:
             if cfg.get('allow_sudo', False):
                 cmd = ['sudo'] + cmd
                 try:
-                    result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=5)
+                    result = subprocess.run(
+                        cmd,
+                        capture_output=True,
+                        text=True,
+                        check=True,
+                        timeout=5,
+                    )
                     self._clear_error()
                     return self._pinctrl_output_is_high(result.stdout)
                 except Exception as sudo_error:
@@ -183,6 +203,28 @@ class MotionSensorManager:
         except Exception as e:
             self._set_error(f"Unexpected error reading pin with pinctrl: {e}")
             return False
+
+    def _ensure_initialized(self) -> bool:
+        if self._initialized:
+            return True
+
+        if self._is_pi5:
+            if not self._setup_pin_pi5():
+                return False
+            self._initialized = True
+            return True
+
+        if not self._gpio:
+            return False
+        try:
+            self._gpio.setmode(self._gpio.BCM)
+            self._gpio.setup(self._pin, self._gpio.IN)
+            self._initialized = True
+            self._clear_error()
+            return True
+        except Exception as e:
+            self._set_error(f"Failed to initialize GPIO: {e}")
+            return False
     
     def detect_motion(self) -> bool:
         """Detect motion using the PIR sensor."""
@@ -191,40 +233,21 @@ class MotionSensorManager:
             return False
         
         try:
+            with self._lock:
+                if not self._ensure_initialized():
+                    return False
+
             if self._is_pi5:
-                # Pi 5 uses pinctrl
-                with self._lock:
-                    if not self._initialized:
-                        if not self._setup_pin_pi5():
-                            return False
-                        self._initialized = True
-                
                 motion_detected = self._read_pin_pi5()
-                if motion_detected:
-                    self.logger.info(f"Motion detected on pin {self._pin}")
-                return motion_detected
+            elif self._gpio:
+                motion_detected = bool(self._gpio.input(self._pin))
+                self._clear_error()
             else:
-                # Older Pi uses RPi.GPIO
-                with self._lock:
-                    if not self._initialized:
-                        if self._gpio:
-                            try:
-                                self._gpio.setmode(self._gpio.BCM)
-                                self._gpio.setup(self._pin, self._gpio.IN)
-                                self._initialized = True
-                            except Exception as e:
-                                self._set_error(f"Failed to initialize GPIO: {e}")
-                                return False
-                        else:
-                            return False
-                
-                if self._gpio:
-                    motion_detected = bool(self._gpio.input(self._pin))
-                    self._clear_error()
-                    if motion_detected:
-                        self.logger.info(f"Motion detected on pin {self._pin}")
-                    return motion_detected
                 return False
+
+            if motion_detected:
+                self.logger.info(f"Motion detected on pin {self._pin}")
+            return motion_detected
         
         except Exception as e:
             self._set_error(f"Error detecting motion: {e}")

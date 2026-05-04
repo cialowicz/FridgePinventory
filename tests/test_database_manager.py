@@ -23,6 +23,7 @@ def test_migrations_idempotent(db_manager_instance):
     assert first == second
     assert "001_initial_schema.sql" in first
     assert "002_inventory_last_modified_trigger.sql" in first
+    assert "004_inventory_quantity_constraints.sql" in first
 
 
 def test_migrations_applied_tables_exist(db_manager_instance):
@@ -38,7 +39,10 @@ def test_add_creates_history_row(db_manager_instance):
     assert db_manager_instance.add_item("salmon", 3) is True
     conn = db_manager_instance._get_connection()
     cur = conn.cursor()
-    cur.execute("SELECT item_name, previous_quantity, new_quantity, operation_type FROM inventory_history")
+    cur.execute(
+        "SELECT item_name, previous_quantity, new_quantity, operation_type "
+        "FROM inventory_history"
+    )
     rows = cur.fetchall()
     cur.close()
     assert len(rows) == 1
@@ -75,6 +79,18 @@ def test_set_zero_deletes_row(db_manager_instance):
 def test_mutators_reject_invalid_quantities(db_manager_instance, method, args):
     with pytest.raises(ValueError):
         getattr(db_manager_instance, method)(*args)
+
+
+def test_add_rejects_quantity_that_would_exceed_limit(db_manager_instance):
+    db_manager_instance.add_item("salmon", 10000)
+    with pytest.raises(ValueError):
+        db_manager_instance.add_item("salmon", 1)
+
+
+def test_database_constraints_reject_out_of_range_direct_writes(db_manager_instance):
+    conn = db_manager_instance._get_connection()
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute("INSERT INTO inventory (item_name, quantity) VALUES (?, ?)", ("bad", 10001))
 
 
 def test_remove_missing_item_is_noop(db_manager_instance):
@@ -234,6 +250,13 @@ def test_resolve_db_path_expands_user_and_creates_parent(tmp_path, monkeypatch):
 def test_resolve_db_path_passes_through_memory():
     from pi_inventory_system.database_manager import DatabaseManager
     assert DatabaseManager._resolve_db_path(":memory:") == ":memory:"
+
+
+def test_invalid_pragma_choice_falls_back():
+    from pi_inventory_system.database_manager import _safe_pragma_choice
+
+    assert _safe_pragma_choice("WAL; DROP TABLE inventory", {"WAL"}, "WAL") == "WAL"
+    assert _safe_pragma_choice("wal", {"WAL"}, "DELETE") == "WAL"
 
 
 def test_resolve_db_path_expands_env_vars(tmp_path, monkeypatch):
