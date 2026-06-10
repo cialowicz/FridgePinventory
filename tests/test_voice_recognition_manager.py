@@ -86,3 +86,64 @@ def test_recognition_returns_none_when_all_engines_fail():
     )
 
     assert result is None
+
+
+def test_sphinx_uses_command_grammar_by_default():
+    manager = VoiceRecognitionManager(config_manager=_config(cooldown=0))
+    manager._recognizer = MagicMock()
+    manager._recognizer.recognize_sphinx.return_value = "add chicken"
+    audio = object()
+
+    with patch('pi_inventory_system.voice_recognition_manager.get_grammar_path',
+               return_value='/tmp/fridge_commands.jsgf'):
+        result = manager._recognize_with_fallback(audio, {'engine': 'sphinx'})
+
+    assert result == "add chicken"
+    manager._recognizer.recognize_sphinx.assert_called_once_with(
+        audio, grammar='/tmp/fridge_commands.jsgf')
+
+
+def test_sphinx_grammar_disabled_via_config():
+    manager = VoiceRecognitionManager(config_manager=_config(cooldown=0))
+    manager._recognizer = MagicMock()
+    manager._recognizer.recognize_sphinx.return_value = "add chicken"
+    audio = object()
+
+    with patch('pi_inventory_system.voice_recognition_manager.get_grammar_path',
+               return_value='/tmp/fridge_commands.jsgf') as grammar_path:
+        result = manager._recognize_with_fallback(
+            audio, {'engine': 'sphinx', 'sphinx_grammar': False})
+
+    assert result == "add chicken"
+    grammar_path.assert_not_called()
+    manager._recognizer.recognize_sphinx.assert_called_once_with(audio)
+
+
+def test_sphinx_runs_without_grammar_when_unavailable():
+    manager = VoiceRecognitionManager(config_manager=_config(cooldown=0))
+    manager._recognizer = MagicMock()
+    manager._recognizer.recognize_sphinx.return_value = "add chicken"
+    audio = object()
+
+    with patch('pi_inventory_system.voice_recognition_manager.get_grammar_path',
+               return_value=None):
+        result = manager._recognize_with_fallback(audio, {'engine': 'sphinx'})
+
+    assert result == "add chicken"
+    manager._recognizer.recognize_sphinx.assert_called_once_with(audio)
+
+
+def test_google_engine_never_receives_grammar_kwarg():
+    manager = VoiceRecognitionManager(config_manager=_config(cooldown=0))
+    manager._recognizer = MagicMock()
+    manager._recognizer.recognize_sphinx.side_effect = sr.UnknownValueError()
+    manager._recognizer.recognize_google.return_value = "add beef"
+    audio = object()
+
+    with patch('pi_inventory_system.voice_recognition_manager.get_grammar_path',
+               return_value='/tmp/fridge_commands.jsgf'):
+        result = manager._recognize_with_fallback(
+            audio, {'engine': 'sphinx', 'enable_google_fallback': True})
+
+    assert result == "add beef"
+    manager._recognizer.recognize_google.assert_called_once_with(audio)

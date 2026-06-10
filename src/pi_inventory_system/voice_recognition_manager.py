@@ -8,6 +8,7 @@ from typing import Optional
 import speech_recognition as sr
 
 from .config_manager import get_default_config_manager
+from .voice_grammar import get_grammar_path
 
 try:
     import pyaudio
@@ -292,7 +293,7 @@ class VoiceRecognitionManager:
         """
         engine = voice_config.get('engine', 'sphinx')
         engines_to_try = []
-        
+
         # Build engine list based on configuration
         if engine.lower() == 'google':
             engines_to_try.append(('google', self._recognizer.recognize_google))
@@ -302,12 +303,22 @@ class VoiceRecognitionManager:
             engines_to_try.append(('sphinx', self._recognizer.recognize_sphinx))
             if voice_config.get('enable_google_fallback', False):
                 engines_to_try.append(('google', self._recognizer.recognize_google))
-        
+
+        # Constrain Sphinx to the command grammar: the open language model
+        # mangles short commands ("add chicken" -> "at a chicken"), while a
+        # grammar can only decode strings the command parser understands.
+        sphinx_grammar = None
+        if voice_config.get('sphinx_grammar', True):
+            sphinx_grammar = get_grammar_path()
+
         # Try each engine
         for engine_name, recognize_func in engines_to_try:
             try:
                 self.logger.info(f"Attempting recognition with {engine_name} engine")
-                command = recognize_func(audio_data)
+                if engine_name == 'sphinx' and sphinx_grammar:
+                    command = recognize_func(audio_data, grammar=sphinx_grammar)
+                else:
+                    command = recognize_func(audio_data)
                 self.logger.info(f"Recognized with {engine_name}: {command}")
                 return command.lower()
                 
