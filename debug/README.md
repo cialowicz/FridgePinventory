@@ -42,6 +42,15 @@ time. A working panel takes seconds per step, visibly flashes during
 `Clear()`, and asserts BUSY. Sub-second timings with `BUSY ever asserted:
 False` mean the panel is not executing commands (see pin_probe checklist).
 
+## mic_test.py
+
+Microphone diagnostics. With no args: records a few seconds from each real
+capture device while you talk and reports peak/RMS signal levels (saved to
+/tmp/mic_<n>.wav for playback), identifying which device actually hears you.
+With a device index argument: runs the app's exact recognition pipeline on
+that device (calibration, listen, Sphinx) with the energy threshold printed
+at each stage. See the module docstring for interpretation.
+
 ## test_pattern.py
 
 Visual end-to-end check: renders 4-gray vertical bars plus text through the
