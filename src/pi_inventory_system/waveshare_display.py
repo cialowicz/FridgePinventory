@@ -45,8 +45,10 @@ def _driver_matches_display(test_module, label: str) -> bool:
 
     test_epd = test_module.EPD()
     if not hasattr(test_epd, 'width') or not hasattr(test_epd, 'height'):
-        logger.info(f"Driver {label} found but no width/height attributes")
-        return True
+        # Rendering assumes 800x480 buffers; a driver whose panel size can't
+        # be checked would silently get wrong-sized (blank) frames.
+        logger.warning(f"Driver {label} has no width/height attributes; skipping")
+        return False
 
     logger.info(f"Testing driver {label}: {test_epd.width}x{test_epd.height}")
     if test_epd.width == 800 and test_epd.height == 480:

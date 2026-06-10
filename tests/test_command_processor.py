@@ -168,3 +168,17 @@ def test_have_no_longer_classified_as_set(mock_config_manager):
     """Questions like 'do you have salmon' should not register as set."""
     command_type, _ = interpret_command("do you have salmon", mock_config_manager)
     assert command_type is None
+
+
+@pytest.mark.parametrize("command,expected_type", [
+    # Words *containing* an undo keyword must not classify as undo.
+    ("add 2 cancelled-order steaks", "add"),
+    ("remove 1 reversed jacket", "remove"),
+    # Real undo phrasings still classify as undo.
+    ("cancel that", "undo"),
+    ("take back the last one", "undo"),
+    ("revert", "undo"),
+])
+def test_undo_words_match_on_word_boundaries(command, expected_type, mock_config_manager):
+    command_type, _ = interpret_command(command, mock_config_manager)
+    assert command_type == expected_type

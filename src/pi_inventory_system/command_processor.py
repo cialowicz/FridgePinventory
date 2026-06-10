@@ -28,6 +28,11 @@ _NLP_MAX_LOAD_FAILURES = 3
 _nlp_lock = threading.Lock()
 
 UNDO_WORDS = ('undo', 'reverse', 'take back', 'cancel', 'revert')
+# Word-boundary match so e.g. "cancelled" or "reversed" inside an item
+# phrase does not classify the whole command as undo.
+_UNDO_RE = re.compile(
+    r"\b(?:" + "|".join(re.escape(word) for word in UNDO_WORDS) + r")\b"
+)
 ADD_VERBS = ('add', 'put', 'place', 'store', 'stock', 'insert', 'got', 'bought', 'purchased')
 REMOVE_VERBS = ('remove', 'take', 'delete', 'use', 'used', 'consume', 'consumed',
                 'subtract', 'ate', 'finished')
@@ -147,7 +152,7 @@ def parse_quantity(text: str, config_manager) -> Optional[int]:
 def _classify_verb(command_text: str, config_manager) -> Optional[str]:
     """Decide whether the user said add / remove / set / undo / nothing.
     Tries spaCy lemmas first, falls back to keyword regex."""
-    if any(word in command_text for word in UNDO_WORDS):
+    if _UNDO_RE.search(command_text):
         return "undo"
 
     model = _ensure_nlp(config_manager)

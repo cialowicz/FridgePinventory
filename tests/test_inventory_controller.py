@@ -272,8 +272,10 @@ def test_process_command_successful_set(controller):
 
 
 def test_update_display_with_inventory(controller):
-    """Display only shows items with quantity > 0, sorted by name."""
-    controller.db.get_inventory.return_value = [("steak", 1), ("chicken breast", 2)]
+    """The displayed list is exactly what get_inventory returns: the DB layer
+    guarantees quantity > 0 and name ordering (see
+    test_get_inventory_skips_zero_rows); the controller does not re-derive it."""
+    controller.db.get_inventory.return_value = [("chicken breast", 2), ("steak", 1)]
 
     with patch(
         'pi_inventory_system.inventory_controller.display_inventory'
@@ -294,15 +296,7 @@ def test_update_display_skips_when_unchanged(controller):
         assert mock_display_inventory.call_count == 1
 
 
-def test_update_display_drops_zero_quantity_rows(controller):
-    """Rows that came back with quantity 0 are not rendered."""
-    controller.db.get_inventory.return_value = [("steak", 0), ("salmon", 3)]
-    with patch(
-        'pi_inventory_system.inventory_controller.display_inventory'
-    ) as mock_display_inventory:
-        controller.update_display_with_inventory()
-        actual_list = mock_display_inventory.call_args[0][1]
-        assert actual_list == [('salmon', 3)]
+
 
 
 @pytest.mark.skip(reason="Loop-related tests are not critical and can be flaky")

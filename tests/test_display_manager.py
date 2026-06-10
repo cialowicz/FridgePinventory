@@ -432,3 +432,13 @@ def test_display_inventory_sanitizes_invalid_layout(mock_config_manager):
             [("salmon", 1)],
             mock_config_manager,
         )
+
+
+def test_waveshare_driver_matching_rejects_unknown_dimensions():
+    """A driver that cannot report its panel size cannot be validated against
+    the 800x480 buffers this app builds; it must be rejected, not assumed."""
+    class Module:
+        class EPD:
+            pass
+
+    assert waveshare_display._driver_matches_display(Module, "test-driver") is False

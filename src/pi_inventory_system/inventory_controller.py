@@ -9,7 +9,6 @@ from .database_manager import get_default_db_manager
 from .display_manager import display_inventory
 from .exceptions import CommandProcessingError, DatabaseError, DisplayError, InventoryError
 from .inventory_item import InventoryItem
-from .item_normalizer import normalize_item_name
 
 
 class InventoryController:
@@ -25,7 +24,6 @@ class InventoryController:
         self._db_manager = db_manager or get_default_db_manager()
         self.display = display
         self.config_manager = config_manager
-        self._command_history: List[Tuple[str, InventoryItem]] = []
         self._last_rendered_inventory: Optional[List[Tuple[str, int]]] = None
         self._last_rendered_at: Optional[float] = None
         # update_display_with_inventory is invoked from both the main loop
@@ -123,8 +121,8 @@ class InventoryController:
             return
         with self._display_lock:
             try:
-                db_inventory_list = sorted(self._db_manager.get_inventory())
-                display_list = [(name, qty) for name, qty in db_inventory_list if qty > 0]
+                # get_inventory already filters quantity > 0 and sorts by name.
+                display_list = self._db_manager.get_inventory()
 
                 stale_after = self._display_cache_ttl_seconds()
                 cache_age = (
@@ -253,32 +251,28 @@ class InventoryController:
             logging.warning(f"Missing command type or item: type={command_type}, item={item}")
             return False, None, None
 
-        # Normalise without mutating the caller's InventoryItem.
-        normalized_name = (
-            normalize_item_name(item.item_name, self.config_manager) or item.item_name
-        )
-        normalized = InventoryItem(item_name=normalized_name, quantity=item.quantity)
+        # Item names arrive already normalized by interpret_command.
         logging.info(
-            f"Executing {command_type} for {normalized.item_name} "
-            f"(qty: {normalized.quantity})"
+            f"Executing {command_type} for {item.item_name} "
+            f"(qty: {item.quantity})"
         )
 
         try:
             if command_type == "add":
-                current_qty = self._db_manager.get_current_quantity(normalized.item_name)
-                if current_qty + normalized.quantity > MAX_QUANTITY:
+                current_qty = self._db_manager.get_current_quantity(item.item_name)
+                if current_qty + item.quantity > MAX_QUANTITY:
                     raise InventoryError(
-                        f"Cannot add {normalized.quantity} - "
+                        f"Cannot add {item.quantity} - "
                         f"would exceed maximum of {MAX_QUANTITY}"
                     )
-                success = self._db_manager.add_item(normalized.item_name, normalized.quantity)
+                success = self._db_manager.add_item(item.item_name, item.quantity)
             elif command_type == "remove":
-                current_qty = self._db_manager.get_current_quantity(normalized.item_name)
+                current_qty = self._db_manager.get_current_quantity(item.item_name)
                 if current_qty <= 0:
-                    return False, 0, normalized.item_name
-                success = self._db_manager.remove_item(normalized.item_name, normalized.quantity)
+                    return False, 0, item.item_name
+                success = self._db_manager.remove_item(item.item_name, item.quantity)
             elif command_type == "set":
-                success = self._db_manager.set_item(normalized.item_name, normalized.quantity)
+                success = self._db_manager.set_item(item.item_name, item.quantity)
             else:
                 logging.error(f"Unknown command type: {command_type}")
                 return False, None, None
@@ -289,11 +283,8 @@ class InventoryController:
             raise CommandProcessingError(str(e))
 
         if not success:
-            logging.warning(f"Command {command_type} reported failure for {normalized.item_name}")
+            logging.warning(f"Command {command_type} reported failure for {item.item_name}")
             return False, None, None
 
-        new_quantity = self._db_manager.get_current_quantity(normalized.item_name)
-        self._command_history.append((command_type, normalized))
-        if len(self._command_history) > 100:
-            self._command_history = self._command_history[-100:]
+        new_quantity = self._db_manager.get_current_quantity(item.item_name)
         return True, new_quantity, None
