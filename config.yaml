@@ -30,6 +30,7 @@ audio:
   voice_recognition:
     timeout: 5
     phrase_time_limit: 10
+    recognition_grace: 15.0  # extra seconds allowed for the engine to decode audio
     engine: "sphinx"  # Options: sphinx, google
     device_index: null  # null for default, or specific device index
   text_to_speech:

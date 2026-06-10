@@ -27,8 +27,18 @@ from .motion_sensor_manager import MotionSensorManager
 from .voice_recognition_manager import VoiceRecognitionManager
 
 
-VOICE_TIMEOUT_SECONDS = 15
+# Defaults mirror the voice_recognition config section; the worker deadline is
+# always listen-timeout + phrase-window + recognition grace, never less.
+DEFAULT_LISTEN_TIMEOUT_SECONDS = 5.0
+DEFAULT_PHRASE_TIME_LIMIT_SECONDS = 10.0
+DEFAULT_RECOGNITION_GRACE_SECONDS = 15.0
 MAX_ORPHANED_VOICE_TASKS = 2
+
+
+def _positive_seconds(value, default: float) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+        return default
+    return float(value)
 
 
 class _VoiceTask:
@@ -230,6 +240,27 @@ class FridgePinventoryApp:
             except Exception as feedback_error:
                 self.logger.error(f"Failed to output voice error feedback: {feedback_error}")
 
+    def _voice_timeout_seconds(self) -> float:
+        """Deadline for a healthy voice task. The microphone legitimately
+        spends up to `timeout` waiting for speech plus `phrase_time_limit`
+        recording before recognition even starts; `recognition_grace` covers
+        the decode itself (sphinx on a Pi takes seconds for a long phrase)."""
+        try:
+            audio_config = self.config_manager.get_audio_config()
+            voice_config = audio_config.get('voice_recognition', {})
+        except Exception:
+            voice_config = {}
+        if not isinstance(voice_config, dict):
+            voice_config = {}
+        return (
+            _positive_seconds(voice_config.get('timeout'),
+                              DEFAULT_LISTEN_TIMEOUT_SECONDS)
+            + _positive_seconds(voice_config.get('phrase_time_limit'),
+                                DEFAULT_PHRASE_TIME_LIMIT_SECONDS)
+            + _positive_seconds(voice_config.get('recognition_grace'),
+                                DEFAULT_RECOGNITION_GRACE_SECONDS)
+        )
+
     def _check_voice_future(self) -> bool:
         """Return True when a voice task is still running."""
         if self._voice_future is None:
@@ -248,7 +279,7 @@ class FridgePinventoryApp:
 
         if self._voice_started_at is not None:
             elapsed = time.monotonic() - self._voice_started_at
-            if elapsed > VOICE_TIMEOUT_SECONDS and not self._voice_timeout_logged:
+            if elapsed > self._voice_timeout_seconds() and not self._voice_timeout_logged:
                 self.logger.warning("Voice command timed out")
                 self._voice_timeout_logged = True
                 self._reset_voice_worker()

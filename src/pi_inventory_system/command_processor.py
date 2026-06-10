@@ -23,6 +23,8 @@ except Exception:
 
 _nlp = None
 _nlp_load_attempted = False
+_nlp_load_failures = 0
+_NLP_MAX_LOAD_FAILURES = 3
 _nlp_lock = threading.Lock()
 
 UNDO_WORDS = ('undo', 'reverse', 'take back', 'cancel', 'revert')
@@ -47,10 +49,12 @@ _NUMERIC_TOKEN_RE = re.compile(r"^[+-]?\d+(?:\.\d+)?$")
 
 def _ensure_nlp(config_manager):
     """Load spaCy lazily. Permanent skips (no spacy installed, disabled in
-    config) latch via _nlp_load_attempted; transient OSError from a partially
-    installed model leaves the flag False so a later restart of the load
-    succeeds without restarting the process."""
-    global _nlp, _nlp_load_attempted
+    config) latch via _nlp_load_attempted. OSError can be transient (partially
+    written model) but is also what spaCy raises when the model simply is not
+    installed, so retries are capped: after _NLP_MAX_LOAD_FAILURES failures we
+    latch onto rule-based parsing instead of paying a model-load attempt on
+    every command."""
+    global _nlp, _nlp_load_attempted, _nlp_load_failures
     if _nlp_load_attempted:
         return _nlp
 
@@ -71,11 +75,21 @@ def _ensure_nlp(config_manager):
             _nlp = spacy.load(model_name)
             logging.info(f"Loaded spaCy model: {model_name}")
             _nlp_load_attempted = True
+            _nlp_load_failures = 0
         except OSError as e:
-            logging.warning(
-                f"spaCy model '{model_name}' load failed (transient): {e}; "
-                "will retry on next command")
             _nlp = None
+            _nlp_load_failures += 1
+            if _nlp_load_failures >= _NLP_MAX_LOAD_FAILURES:
+                _nlp_load_attempted = True
+                logging.warning(
+                    f"spaCy model '{model_name}' failed to load "
+                    f"{_nlp_load_failures} times ({e}); "
+                    "using rule-based parsing for the rest of this process")
+            else:
+                logging.warning(
+                    f"spaCy model '{model_name}' load failed "
+                    f"(attempt {_nlp_load_failures}/{_NLP_MAX_LOAD_FAILURES}): {e}; "
+                    "will retry on next command")
         except Exception as e:
             logging.warning(f"spaCy model '{model_name}' unavailable, falling back: {e}")
             _nlp = None

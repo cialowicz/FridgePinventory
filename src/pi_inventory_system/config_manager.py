@@ -45,6 +45,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         'voice_recognition': {
             'timeout': 5,
             'phrase_time_limit': 10,
+            'recognition_grace': 15.0,
             'engine': 'sphinx',
             'device_index': None
         },
@@ -184,7 +185,7 @@ class ConfigManager:
                 return None
         elif key in ['similarity_threshold', 'volume', 'main_loop_delay',
                      'motion_check_interval', 'idle_delay', 'max_stale_seconds',
-                     'simulation_voice_interval']:
+                     'simulation_voice_interval', 'recognition_grace']:
             try:
                 return float(value)
             except ValueError:

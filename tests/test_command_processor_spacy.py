@@ -12,6 +12,7 @@ def reset_nlp_globals():
     """Reset the global _nlp and _nlp_load_attempted flags before each test."""
     pi_inventory_system.command_processor._nlp = None
     pi_inventory_system.command_processor._nlp_load_attempted = False
+    pi_inventory_system.command_processor._nlp_load_failures = 0
     yield
 
 @pytest.fixture
@@ -150,3 +151,34 @@ def test_unrecognized_command_with_spacy(mock_spacy_load, spacy_config_manager):
     assert command_type is None
     assert item is None
     mock_spacy_load.assert_called_once()
+
+
+@patch("pi_inventory_system.command_processor.spacy.load")
+def test_spacy_missing_model_stops_retrying_after_cap(mock_spacy_load, spacy_config_manager):
+    """spaCy raises OSError when the model isn't installed — the common
+    *permanent* case. The loader must stop re-attempting (a multi-second
+    filesystem scan on a Pi) after a bounded number of failures."""
+    mock_spacy_load.side_effect = OSError("model 'en_core_web_sm' not found")
+    cap = pi_inventory_system.command_processor._NLP_MAX_LOAD_FAILURES
+
+    for _ in range(cap + 5):
+        result = pi_inventory_system.command_processor._ensure_nlp(spacy_config_manager)
+        assert result is None
+
+    assert mock_spacy_load.call_count == cap
+    # Rule-based parsing still works once spaCy is latched off.
+    command_type, item = interpret_command("add 2 salmon", spacy_config_manager)
+    assert command_type == "add"
+    assert item == InventoryItem(item_name="salmon", quantity=2)
+
+
+@patch("pi_inventory_system.command_processor.spacy.load")
+def test_spacy_transient_failure_retries_before_cap(mock_spacy_load, spacy_config_manager):
+    """A load failure below the cap must retry — and a later success sticks."""
+    mock_nlp = MagicMock()
+    mock_spacy_load.side_effect = [OSError("disk hiccup"), mock_nlp]
+
+    assert pi_inventory_system.command_processor._ensure_nlp(spacy_config_manager) is None
+    assert pi_inventory_system.command_processor._ensure_nlp(spacy_config_manager) is mock_nlp
+    assert pi_inventory_system.command_processor._ensure_nlp(spacy_config_manager) is mock_nlp
+    assert mock_spacy_load.call_count == 2

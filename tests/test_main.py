@@ -5,7 +5,6 @@ import pytest
 
 from pi_inventory_system.main import (
     MAX_ORPHANED_VOICE_TASKS,
-    VOICE_TIMEOUT_SECONDS,
     FridgePinventoryApp,
 )
 
@@ -121,12 +120,53 @@ def test_kick_voice_command_does_not_block_motion_loop(app_context):
     assert app._check_voice_future() is False
 
 
+def test_voice_timeout_derived_from_config(app_context):
+    """The worker deadline must cover listen timeout + phrase window + a
+    recognition grace period, all taken from config."""
+    app, cfg, _, _, _, _, _, _ = app_context
+    cfg.get_audio_config.return_value = {
+        'voice_recognition': {
+            'timeout': 7,
+            'phrase_time_limit': 20,
+            'recognition_grace': 3,
+        }
+    }
+
+    assert app._voice_timeout_seconds() == 30.0
+
+
+def test_voice_timeout_defaults_exceed_listen_windows(app_context):
+    """With default config (5s listen + 10s phrase) the deadline must leave
+    real time for recognition itself — the old hardcoded 15s left zero."""
+    app, cfg, _, _, _, _, _, _ = app_context
+    cfg.get_audio_config.return_value = {}
+
+    assert app._voice_timeout_seconds() >= 25.0
+
+
+def test_voice_worker_not_retired_during_legitimate_phrase(app_context):
+    """A worker 20s in (user spoke through the 10s phrase window, sphinx is
+    decoding) is healthy and must not be retired with default config."""
+    app, cfg, _, _, _, _, _, _ = app_context
+    cfg.get_audio_config.return_value = {}
+    future = MagicMock()
+    future.done.return_value = False
+    app._voice_future = future
+    app._voice_started_at = time.monotonic() - 20
+
+    assert app._check_voice_future() is True
+
+    assert app._voice_future is future
+    assert app._orphaned_voice_tasks == []
+    assert app._voice_disabled is False
+
+
 def test_voice_timeout_retires_worker(app_context):
     app, _, _, _, _, _, old_voice, _ = app_context
     future = MagicMock()
     future.done.return_value = False
     app._voice_future = future
-    app._voice_started_at = time.monotonic() - VOICE_TIMEOUT_SECONDS - 1
+    app._voice_started_at = time.monotonic() - app._voice_timeout_seconds() - 1
 
     assert app._check_voice_future() is False
 
@@ -145,7 +185,7 @@ def test_prune_orphaned_voice_task_cleans_retired_manager(app_context):
     future = MagicMock()
     future.done.return_value = False
     app._voice_future = future
-    app._voice_started_at = time.monotonic() - VOICE_TIMEOUT_SECONDS - 1
+    app._voice_started_at = time.monotonic() - app._voice_timeout_seconds() - 1
 
     assert app._check_voice_future() is False
     old_voice.cleanup.assert_not_called()
@@ -165,7 +205,7 @@ def test_voice_timeout_disables_after_orphan_cap(app_context):
         future = MagicMock()
         future.done.return_value = False
         app._voice_future = future
-        app._voice_started_at = time.monotonic() - VOICE_TIMEOUT_SECONDS - 1
+        app._voice_started_at = time.monotonic() - app._voice_timeout_seconds() - 1
 
         assert app._check_voice_future() is False
 
@@ -260,7 +300,7 @@ def test_voice_task_after_retire_runs_followup_command(app_context):
     app.running = True
 
     # Force a retire.
-    app._voice_started_at = time.monotonic() - VOICE_TIMEOUT_SECONDS - 1
+    app._voice_started_at = time.monotonic() - app._voice_timeout_seconds() - 1
     future_stub = MagicMock()
     future_stub.done.return_value = False
     app._voice_future = future_stub
