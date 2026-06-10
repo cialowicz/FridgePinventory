@@ -461,9 +461,11 @@ class EPD:
 
     # Bit per 2-bit gray code (0=black, 1=dark gray, 2=light gray, 3=white)
     # for each controller RAM plane; the (0x24, 0x26) bit pair selects the
-    # gray level: white=(0,0), light=(1,0), dark=(0,1), black=(1,1).
-    _PLANE_24_LUT = np.array([1, 0, 1, 0], dtype=np.uint8)
-    _PLANE_26_LUT = np.array([1, 1, 0, 0], dtype=np.uint8)
+    # gray level: white=(1,1), light=(1,0), dark=(0,1), black=(0,0).
+    # Polarity anchored by Clear(), which writes 0xFF to both planes for a
+    # white screen (and matches the official Waveshare 4-gray reference).
+    _PLANE_24_LUT = np.array([0, 0, 1, 1], dtype=np.uint8)
+    _PLANE_26_LUT = np.array([0, 1, 0, 1], dtype=np.uint8)
 
     def _4gray_planes(self, image):
         """Expand a packed 4-gray buffer into the two 1-bit RAM planes.

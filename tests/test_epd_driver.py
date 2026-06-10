@@ -133,7 +133,14 @@ def reference_getbuffer_4gray(epd, image):
 
 
 def reference_4gray_planes(epd, image):
-    """Plane byte streams the original per-byte display_4GRAY sent to 0x24/0x26."""
+    """Plane byte streams display_4GRAY must send to 0x24/0x26.
+
+    Per-pixel loop from the official Waveshare 4-gray reference
+    (e.g. epd3in7): white=(1,1), light gray=(1,0), dark gray=(0,1),
+    black=(0,0) — consistent with Clear(), which writes 0xFF to both
+    planes to whiten the panel. (The buffer codes here are post-remap:
+    0xC0 = light gray, 0x40 = dark gray.)
+    """
     planes = []
     for plane in (0, 1):
         out = []
@@ -146,9 +153,9 @@ def reference_4gray_planes(epd, image):
                     for sub in range(2):
                         temp2 = temp1 & 0xC0
                         if plane == 0:
-                            bit = 1 if temp2 in (0x00, 0x80) else 0
+                            bit = 1 if temp2 in (0xC0, 0x80) else 0
                         else:
-                            bit = 1 if temp2 in (0x00, 0x40) else 0
+                            bit = 1 if temp2 in (0xC0, 0x40) else 0
                         temp3 |= bit
                         last = (j == 1 and k == 1 and sub == 1)
                         if not last:
@@ -211,6 +218,23 @@ def test_display_4gray_sends_reference_planes_bulk(driver):
     assert [0x26] in [c[1] for c in commands]
     assert bulks[0] == expected_24
     assert bulks[1] == expected_26
+
+
+def test_display_4gray_white_and_black_polarity(driver):
+    """A white image must produce the same all-0xFF planes Clear() sends;
+    a black image the complement. Guards against re-inverting the LUTs."""
+    module, stub = driver
+    epd = module.EPD()
+    epd.width, epd.height = 32, 8
+    plane_bytes = 32 * 8 // 8
+
+    for level, expected_byte in ((0xFF, 0xFF), (0x00, 0x00)):
+        buf = epd.getbuffer_4Gray(Image.new("L", (32, 8), level))
+        stub.spi_log.clear()
+        epd.display_4GRAY(buf)
+        bulks = [entry[1] for entry in stub.spi_log if entry[0] == "bulk"]
+        assert bulks[0] == bytes([expected_byte] * plane_bytes)
+        assert bulks[1] == bytes([expected_byte] * plane_bytes)
 
 
 def test_readbusy_times_out_instead_of_hanging(driver):
