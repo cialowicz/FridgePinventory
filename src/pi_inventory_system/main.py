@@ -33,6 +33,13 @@ DEFAULT_LISTEN_TIMEOUT_SECONDS = 5.0
 DEFAULT_PHRASE_TIME_LIMIT_SECONDS = 10.0
 DEFAULT_RECOGNITION_GRACE_SECONDS = 15.0
 MAX_ORPHANED_VOICE_TASKS = 2
+# Keep accepting voice commands this long after the last motion reading, so
+# users speak several commands per approach instead of re-triggering the PIR
+# for each one.
+DEFAULT_LISTEN_WINDOW_SECONDS = 20.0
+# A failed listen (e.g. audio init failure) returns in milliseconds; without a
+# floor between restarts the loop would re-kick every tick and spam the log.
+MIN_VOICE_REKICK_GAP_SECONDS = 1.0
 
 
 def _positive_seconds(value, default: float) -> float:
@@ -106,6 +113,7 @@ class FridgePinventoryApp:
 
         self._voice_future: Optional[_VoiceTask] = None
         self._voice_started_at: Optional[float] = None
+        self._last_voice_kick_at: Optional[float] = None
         self._voice_timeout_logged = False
         self._orphaned_voice_tasks: list[_VoiceTask] = []
         self._orphaned_voice_managers: list[tuple[_VoiceTask, VoiceRecognitionManager]] = []
@@ -381,9 +389,39 @@ class FridgePinventoryApp:
         if self._check_voice_future():
             return
         self._voice_started_at = time.monotonic()
+        self._last_voice_kick_at = self._voice_started_at
         bound_manager = self.voice_manager
         self._voice_future = _VoiceTask(self._handle_voice_command, bound_manager)
         self._voice_future.start()
+
+    def _listen_window_seconds(self) -> float:
+        system_config = self.config_manager.get_system_config()
+        window = system_config.get('listen_window_seconds',
+                                   DEFAULT_LISTEN_WINDOW_SECONDS)
+        if isinstance(window, bool) or not isinstance(window, (int, float)) \
+                or window < 0:
+            return DEFAULT_LISTEN_WINDOW_SECONDS
+        return float(window)
+
+    def _maybe_continue_listening(self, loop) -> None:
+        """Restart listening while motion is recent.
+
+        Voice was kicked only on the idle->active transition, so each command
+        required letting the PIR go quiet and re-triggering it. Instead, keep
+        the listening window open for listen_window_seconds after the last
+        motion reading and start a new listen whenever the previous voice
+        task has finished."""
+        if loop.last_motion_time is None:
+            return
+        if (time.time() - loop.last_motion_time) > self._listen_window_seconds():
+            return
+        if self._check_voice_future():
+            return
+        if (self._last_voice_kick_at is not None
+                and (time.monotonic() - self._last_voice_kick_at)
+                < MIN_VOICE_REKICK_GAP_SECONDS):
+            return
+        self._kick_voice_command()
 
     def _run_without_motion(
         self,
@@ -489,6 +527,7 @@ class FridgePinventoryApp:
                     display_ok,
                     previous_mode,
                 )
+                self._maybe_continue_listening(loop)
 
                 if loop.mode == IDLE:
                     self.shutdown_event.wait(timeout=decision.sleep_seconds)

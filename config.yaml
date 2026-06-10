@@ -61,6 +61,7 @@ system:
   enable_diagnostics: true
   activation_mode: "auto"  # auto, motion, simulation, always_listen, manual
   simulation_voice_interval: 5.0  # seconds between voice attempts without motion hardware
+  listen_window_seconds: 20.0  # keep listening this long after the last motion reading
   
 # Hardware Configuration
 hardware:

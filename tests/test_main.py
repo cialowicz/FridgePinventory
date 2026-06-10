@@ -102,6 +102,96 @@ def test_handle_voice_command_exception_outputs_error_feedback(app_context):
     audio.output_error.assert_called_once_with("Voice command failed. Please try again.")
 
 
+def test_continue_listening_kicks_within_window(app_context):
+    app, *_ = app_context
+    loop = MagicMock()
+    loop.last_motion_time = time.time() - 5  # within the default 20s window
+
+    with patch.object(app, '_kick_voice_command') as kick:
+        app._maybe_continue_listening(loop)
+
+    kick.assert_called_once()
+
+
+def test_continue_listening_stops_after_window_expires(app_context):
+    app, *_ = app_context
+    loop = MagicMock()
+    loop.last_motion_time = time.time() - 25  # past the default 20s window
+
+    with patch.object(app, '_kick_voice_command') as kick:
+        app._maybe_continue_listening(loop)
+
+    kick.assert_not_called()
+
+
+def test_continue_listening_window_is_configurable(app_context):
+    app, cfg, *_ = app_context
+    cfg.get_system_config.return_value = {
+        **cfg.get_system_config.return_value,
+        'listen_window_seconds': 2.0,
+    }
+    loop = MagicMock()
+    loop.last_motion_time = time.time() - 5
+
+    with patch.object(app, '_kick_voice_command') as kick:
+        app._maybe_continue_listening(loop)
+
+    kick.assert_not_called()
+
+
+def test_continue_listening_skips_before_any_motion(app_context):
+    app, *_ = app_context
+    loop = MagicMock()
+    loop.last_motion_time = None
+
+    with patch.object(app, '_kick_voice_command') as kick:
+        app._maybe_continue_listening(loop)
+
+    kick.assert_not_called()
+
+
+def test_continue_listening_skips_while_voice_task_running(app_context):
+    app, *_ = app_context
+    running = MagicMock()
+    running.done.return_value = False
+    app._voice_future = running
+    app._voice_started_at = time.monotonic()
+    loop = MagicMock()
+    loop.last_motion_time = time.time()
+
+    with patch.object(app, '_kick_voice_command') as kick:
+        app._maybe_continue_listening(loop)
+
+    kick.assert_not_called()
+    app._voice_future = None
+
+
+def test_continue_listening_respects_rekick_gap(app_context):
+    app, *_ = app_context
+    loop = MagicMock()
+    loop.last_motion_time = time.time()
+
+    app._last_voice_kick_at = time.monotonic()
+    with patch.object(app, '_kick_voice_command') as kick:
+        app._maybe_continue_listening(loop)
+    kick.assert_not_called()
+
+    app._last_voice_kick_at = time.monotonic() - 5
+    with patch.object(app, '_kick_voice_command') as kick:
+        app._maybe_continue_listening(loop)
+    kick.assert_called_once()
+
+
+def test_kick_voice_command_records_kick_time(app_context):
+    app, *_ = app_context
+
+    assert app._last_voice_kick_at is None
+    app._kick_voice_command()
+    assert app._last_voice_kick_at is not None
+    assert app._voice_future is not None
+    app._voice_future.result(timeout=2)
+
+
 def test_kick_voice_command_does_not_block_motion_loop(app_context):
     app, _, _, _, _, _, _, _ = app_context
 
@@ -377,7 +467,10 @@ def test_run_processes_motion_transition_and_cleans_up(app_context):
                return_value=(False, True, False, None)):
         app.run()
 
-    app._kick_voice_command.assert_called_once_with()
+    # Kicked on the motion transition, and possibly again by the
+    # continuous-listening window within the same iteration.
+    app._kick_voice_command.assert_called_with()
+    assert app._kick_voice_command.call_count >= 1
     motion.cleanup.assert_called()
 
 
@@ -397,7 +490,8 @@ def test_run_retries_motion_after_failed_diagnostics(app_context):
         app.run()
 
     motion.is_supported.assert_called()
-    app._kick_voice_command.assert_called_once_with()
+    app._kick_voice_command.assert_called_with()
+    assert app._kick_voice_command.call_count >= 1
 
 
 def test_run_auto_mode_uses_voice_when_motion_is_unavailable(app_context):
