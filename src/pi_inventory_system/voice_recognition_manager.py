@@ -446,17 +446,27 @@ class VoiceRecognitionManager:
             raise sr.UnknownValueError()
         return hypothesis.hypstr
 
-    def cleanup(self):
-        """Clean up audio resources."""
+    def cleanup(self, terminate_pyaudio: bool = False):
+        """Clean up audio resources.
+
+        terminate_pyaudio must stay False unless every voice worker thread
+        has exited: Pa_Terminate while another thread is blocked in an ALSA
+        capture corrupts the heap (observed as a 'corrupted double-linked
+        list' SIGABRT on the Pi). Retired/orphaned managers just drop the
+        reference; only the final shutdown path may pass True.
+        """
         with self._lock:
             try:
                 if self._microphone:
                     self.logger.info("Cleaning up microphone")
                     self._microphone = None
-                
+
                 if self._pyaudio_instance:
-                    self.logger.info("Terminating PyAudio")
-                    self._pyaudio_instance.terminate()
+                    if terminate_pyaudio:
+                        self.logger.info("Terminating PyAudio")
+                        self._pyaudio_instance.terminate()
+                    else:
+                        self.logger.info("Releasing PyAudio without terminate")
                     self._pyaudio_instance = None
                 
                 # Reset state

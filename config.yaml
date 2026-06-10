@@ -35,6 +35,7 @@ audio:
     sphinx_grammar: true  # constrain Sphinx decoding to the command grammar
     device_name: "USB PnP"  # matched (substring) against PyAudio input devices; survives index shifts
     device_index: null  # explicit PyAudio index override; validated against the live device list
+    feedback_echo_grace: 1.5  # seconds after chimes/TTS finish before listening resumes (echo decay)
   text_to_speech:
     rate: 150
     volume: 0.9

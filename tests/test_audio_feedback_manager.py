@@ -1,5 +1,6 @@
 """Tests for AudioFeedbackManager — circuit breaker and missing-file paths."""
 
+import time
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -127,6 +128,53 @@ def test_output_plays_chime_before_speech(cfg, method, sound):
     assert getattr(manager, method)("message") is True
 
     assert order == [('sound', sound), ('speak', 'message')]
+
+
+def test_play_sound_marks_output_active_during_playback_and_grace(cfg, tmp_path):
+    """The voice loop uses is_output_active to avoid recording its own
+    chimes/speech (the mic hears the speaker and re-recognizes feedback as
+    commands)."""
+    sound = tmp_path / "s.wav"
+    sound.write_bytes(b"RIFF")
+    cfg.get_audio_config.return_value = {
+        'feedback_sounds': {'success_sound': str(sound)},
+        'text_to_speech': {'rate': 150, 'volume': 0.9, 'voice_id': None},
+    }
+    with patch('pi_inventory_system.audio_feedback_manager.PYTTSX3_AVAILABLE', False), \
+         patch('pi_inventory_system.audio_feedback_manager.SIMPLEAUDIO_AVAILABLE', True):
+        manager = AudioFeedbackManager(config_manager=cfg)
+        assert manager.is_output_active() is False
+
+        during = []
+        with patch('pi_inventory_system.audio_feedback_manager._play_wav_file',
+                   side_effect=lambda p: during.append(manager.is_output_active())):
+            assert manager.play_sound('success') is True
+
+    assert during == [True]
+    assert manager.is_output_active() is False
+    assert manager.is_output_active(grace=30.0) is True
+
+
+def test_speak_counts_message_as_active_until_spoken(cfg):
+    with patch('pi_inventory_system.audio_feedback_manager.PYTTSX3_AVAILABLE', True), \
+         patch.object(AudioFeedbackManager, '_initialize_tts', return_value=True):
+        manager = AudioFeedbackManager(config_manager=cfg)
+
+        # No worker running yet: the queued message must already count as
+        # pending output so listening does not start just before TTS does.
+        assert manager.speak("hello") is True
+        assert manager.is_output_active() is True
+
+    manager._tts_engine = MagicMock()
+    manager._start_tts_worker()
+    deadline = time.monotonic() + 5
+    while manager.is_output_active() and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+    assert manager.is_output_active() is False
+    assert manager.is_output_active(grace=30.0) is True
+    manager._tts_engine.say.assert_called_once_with("hello")
+    manager.cleanup()
 
 
 def test_play_wav_aplay_fallback_has_timeout(tmp_path):

@@ -28,6 +28,8 @@ def app_context():
          patch('signal.signal'):
         motion = MagicMock(name="motion")
         audio = MagicMock(name="audio")
+        # Half-duplex gate: quiet by default so kicks are not deferred.
+        audio.is_output_active.return_value = False
         # Each call to the patched class returns a new mock so retire produces
         # a distinct successor from the original.
         voice = MagicMock(name="voice_initial")
@@ -188,6 +190,22 @@ def test_kick_voice_command_records_kick_time(app_context):
     assert app._last_voice_kick_at is None
     app._kick_voice_command()
     assert app._last_voice_kick_at is not None
+    assert app._voice_future is not None
+    app._voice_future.result(timeout=2)
+
+
+def test_kick_voice_command_deferred_while_feedback_audio_active(app_context):
+    """Half-duplex: never start listening while the speaker is playing
+    feedback (or within the echo grace window) — the mic picks up our own
+    confirmations and re-recognizes them as commands."""
+    app, _, _, _, _, _, _, audio = app_context
+    audio.is_output_active.return_value = True
+
+    app._kick_voice_command()
+
+    assert app._voice_future is None
+    audio.is_output_active.return_value = False
+    app._kick_voice_command()
     assert app._voice_future is not None
     app._voice_future.result(timeout=2)
 

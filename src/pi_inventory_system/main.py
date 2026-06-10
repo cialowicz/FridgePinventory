@@ -40,6 +40,10 @@ DEFAULT_LISTEN_WINDOW_SECONDS = 20.0
 # A failed listen (e.g. audio init failure) returns in milliseconds; without a
 # floor between restarts the loop would re-kick every tick and spam the log.
 MIN_VOICE_REKICK_GAP_SECONDS = 1.0
+# Don't start listening until this long after feedback audio finished: the mic
+# hears the speaker, and recognizing our own confirmations as commands fed an
+# add/confirm/add loop of junk inventory items.
+DEFAULT_FEEDBACK_ECHO_GRACE_SECONDS = 1.5
 
 
 def _positive_seconds(value, default: float) -> float:
@@ -344,9 +348,10 @@ class FridgePinventoryApp:
             self.logger.warning(f"Voice worker exited with error: {e}")
         return True
 
-    def _cleanup_voice_manager_best_effort(self, manager, label: str = "Voice manager") -> None:
+    def _cleanup_voice_manager_best_effort(self, manager, label: str = "Voice manager",
+                                           terminate_pyaudio: bool = False) -> None:
         try:
-            manager.cleanup()
+            manager.cleanup(terminate_pyaudio=terminate_pyaudio)
         except Exception as e:
             self.logger.warning(f"{label} cleanup failed: {e}")
 
@@ -356,7 +361,14 @@ class FridgePinventoryApp:
                 "Skipping voice manager cleanup while voice worker is still running"
             )
             return
-        self._cleanup_voice_manager_best_effort(self.voice_manager)
+        # Pa_Terminate is only safe once no voice thread can be inside an
+        # ALSA capture; with orphaned workers possibly still blocked in
+        # listen, leak the instance instead (the process is exiting anyway).
+        self._prune_orphaned_voice_tasks()
+        self._cleanup_voice_manager_best_effort(
+            self.voice_manager,
+            terminate_pyaudio=not self._orphaned_voice_tasks,
+        )
 
     def _prune_orphaned_voice_tasks(self) -> None:
         remaining_managers = []
@@ -381,12 +393,28 @@ class FridgePinventoryApp:
         self._voice_disabled = False
         self.logger.info("Voice input re-enabled after orphaned task completed")
 
+    def _feedback_echo_grace_seconds(self) -> float:
+        try:
+            audio_config = self.config_manager.get_audio_config()
+            voice_config = audio_config.get('voice_recognition', {})
+        except Exception:
+            voice_config = {}
+        if not isinstance(voice_config, dict):
+            voice_config = {}
+        return _positive_seconds(voice_config.get('feedback_echo_grace'),
+                                 DEFAULT_FEEDBACK_ECHO_GRACE_SECONDS)
+
     def _kick_voice_command(self) -> None:
         self._restore_voice_worker_if_available()
         if self._voice_disabled:
             self.logger.warning("Voice input disabled; skipping voice command")
             return
         if self._check_voice_future():
+            return
+        # Half-duplex: never record while we are playing chimes/TTS (plus an
+        # echo-decay grace) or the mic re-recognizes our own feedback.
+        if self.audio_feedback.is_output_active(self._feedback_echo_grace_seconds()):
+            self.logger.debug("Feedback audio active; deferring listen")
             return
         self._voice_started_at = time.monotonic()
         self._last_voice_kick_at = self._voice_started_at

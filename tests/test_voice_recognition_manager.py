@@ -112,6 +112,31 @@ def test_nothing_configured_uses_system_default():
     assert manager._resolve_input_device_index({}) is None
 
 
+def test_cleanup_default_does_not_terminate_pyaudio():
+    # Pa_Terminate while another (orphaned) voice thread is blocked in an
+    # ALSA capture corrupts the heap — observed SIGABRT on the Pi. Retired
+    # managers must drop the reference without terminating.
+    manager = VoiceRecognitionManager(config_manager=_config(cooldown=0))
+    pa = MagicMock()
+    manager._pyaudio_instance = pa
+
+    manager.cleanup()
+
+    pa.terminate.assert_not_called()
+    assert manager._pyaudio_instance is None
+
+
+def test_cleanup_terminates_pyaudio_when_requested():
+    manager = VoiceRecognitionManager(config_manager=_config(cooldown=0))
+    pa = MagicMock()
+    manager._pyaudio_instance = pa
+
+    manager.cleanup(terminate_pyaudio=True)
+
+    pa.terminate.assert_called_once()
+    assert manager._pyaudio_instance is None
+
+
 def test_microphone_uses_resolved_index():
     cfg = MagicMock()
     cfg.get_audio_config.return_value = {

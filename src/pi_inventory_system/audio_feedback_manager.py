@@ -6,6 +6,7 @@ import queue
 import shutil
 import subprocess
 import threading
+import time
 from typing import Optional
 
 from .config_manager import get_default_config_manager
@@ -67,6 +68,12 @@ class AudioFeedbackManager:
         # Circuit breaker for sounds
         self._sound_failures = 0
         self._sound_disabled = False
+
+        # Half-duplex bookkeeping: count queued/playing outputs so the voice
+        # loop can avoid listening to our own chimes and TTS through the mic.
+        self._output_lock = threading.Lock()
+        self._active_outputs = 0
+        self._last_output_ended_at: Optional[float] = None
         
         self.logger = logging.getLogger(__name__)
         
@@ -140,6 +147,25 @@ class AudioFeedbackManager:
             self._sound_disabled = False
             self.logger.info("Audio circuit breakers reset")
     
+    def _begin_output(self):
+        with self._output_lock:
+            self._active_outputs += 1
+
+    def _end_output(self):
+        with self._output_lock:
+            self._active_outputs = max(0, self._active_outputs - 1)
+            self._last_output_ended_at = time.monotonic()
+
+    def is_output_active(self, grace: float = 0.0) -> bool:
+        """True while feedback audio is queued or playing, or within `grace`
+        seconds of the last output finishing (covers speaker/echo decay)."""
+        with self._output_lock:
+            if self._active_outputs > 0:
+                return True
+            if self._last_output_ended_at is None:
+                return False
+            return (time.monotonic() - self._last_output_ended_at) < grace
+
     def _start_tts_worker(self):
         """Start the TTS worker thread."""
         if self._tts_thread and self._tts_thread.is_alive():
@@ -158,19 +184,23 @@ class AudioFeedbackManager:
                 
                 if message is None:  # Shutdown signal
                     break
-                
-                # Process TTS
-                with self._lock:
-                    if self._tts_engine and not self._tts_disabled:
-                        try:
-                            self._tts_engine.say(message)
-                            self._tts_engine.runAndWait()
-                            self.logger.debug(f"TTS spoke: {message}")
-                            self._tts_failures = 0  # Reset on success
-                        except Exception as e:
-                            self.logger.error(f"TTS error: {e}")
-                            self._handle_tts_failure()
-                            
+
+                # Process TTS; _begin_output happened when the message was
+                # queued, so always pair it here even when speech is skipped.
+                try:
+                    with self._lock:
+                        if self._tts_engine and not self._tts_disabled:
+                            try:
+                                self.logger.info(f"Speaking: {message}")
+                                self._tts_engine.say(message)
+                                self._tts_engine.runAndWait()
+                                self._tts_failures = 0  # Reset on success
+                            except Exception as e:
+                                self.logger.error(f"TTS error: {e}")
+                                self._handle_tts_failure()
+                finally:
+                    self._end_output()
+
             except queue.Empty:
                 continue
             except Exception as e:
@@ -198,6 +228,9 @@ class AudioFeedbackManager:
         
         try:
             self._tts_queue.put(message, timeout=1.0)
+            # Count the message as pending output from queue time so a listen
+            # cannot start in the gap before the worker begins speaking.
+            self._begin_output()
             self.logger.debug(f"Queued TTS message: {message}")
             return True
         except queue.Full:
@@ -247,6 +280,7 @@ class AudioFeedbackManager:
                 self.logger.warning(f"Sound file not found: {sound_file}")
                 return False
 
+            self._begin_output()
             try:
                 _play_wav_file(sound_file)
                 self.logger.debug(f"Played {sound_type} sound: {sound_file}")
@@ -256,6 +290,8 @@ class AudioFeedbackManager:
                 self.logger.error(f"Failed to play sound: {e}")
                 self._handle_sound_failure()
                 return False
+            finally:
+                self._end_output()
     
     def output_confirmation(self, message: str) -> bool:
         """Play the success chime, then speak the confirmation.
