@@ -33,7 +33,7 @@ audio:
     recognition_grace: 15.0  # extra seconds allowed for the engine to decode audio
     engine: "sphinx"  # Options: sphinx, google
     sphinx_grammar: true  # constrain Sphinx decoding to the command grammar
-    device_index: null  # null for default, or specific device index
+    device_index: 1  # USB PnP mic on the appliance Pi (mic_test.py survey); null = system default
   text_to_speech:
     rate: 150
     volume: 0.9

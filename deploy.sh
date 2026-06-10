@@ -62,6 +62,38 @@ if grep -q "^dtoverlay=spi0-0cs" "$BOOT_CONFIG"; then
     echo "spi0-0cs overlay disabled. REBOOT REQUIRED after this script completes!"
 fi
 
+# Route ALSA's default output to the USB speaker. The Pi 5 has no headphone
+# jack, and without this the chimes/TTS go to a nonexistent default device.
+# The card is referenced by NAME because card numbers shift across boots
+# when multiple USB audio devices (mic + speaker) are attached.
+AUDIO_OUTPUT_CARD="UACDemoV10"
+echo "Configuring ALSA default output..."
+if aplay -l 2>/dev/null | grep -q "$AUDIO_OUTPUT_CARD"; then
+    if [ -f /etc/asound.conf ] && ! grep -q "Managed by FridgePinventory" /etc/asound.conf; then
+        BACKUP="/etc/asound.conf.bak.$(date +%Y%m%d%H%M%S)"
+        echo "Backing up existing /etc/asound.conf to $BACKUP"
+        sudo cp /etc/asound.conf "$BACKUP"
+    fi
+    sudo tee /etc/asound.conf > /dev/null <<EOF
+# Managed by FridgePinventory deploy.sh — route default audio to the USB speaker
+defaults.pcm.card $AUDIO_OUTPUT_CARD
+defaults.ctl.card $AUDIO_OUTPUT_CARD
+EOF
+    echo "ALSA default output set to card '$AUDIO_OUTPUT_CARD'."
+    # USB speakers commonly ship with the mixer muted or at 0%; raise
+    # whichever playback control this card exposes (best effort).
+    for control in PCM Speaker Master Headphone; do
+        if amixer -c "$AUDIO_OUTPUT_CARD" sset "$control" 85% unmute > /dev/null 2>&1; then
+            echo "Set '$control' on $AUDIO_OUTPUT_CARD to 85%, unmuted."
+        fi
+    done
+    sudo alsactl store 2>/dev/null || true
+else
+    echo "WARNING: audio output card '$AUDIO_OUTPUT_CARD' not detected;"
+    echo "         leaving /etc/asound.conf untouched. Plug in the USB"
+    echo "         speaker and re-run deploy.sh to configure audio output."
+fi
+
 # Install system dependencies required for building packages
 echo "Installing system dependencies..."
 sudo apt update
