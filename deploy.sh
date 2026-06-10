@@ -76,8 +76,11 @@ if aplay -l 2>/dev/null | grep -q "$AUDIO_OUTPUT_CARD"; then
     fi
     sudo tee /etc/asound.conf > /dev/null <<EOF
 # Managed by FridgePinventory deploy.sh — route default audio to the USB speaker
-defaults.pcm.card $AUDIO_OUTPUT_CARD
-defaults.ctl.card $AUDIO_OUTPUT_CARD
+# The ! override is required: alsa.conf defines these nodes as integers, and
+# assigning a string card name without ! is a type conflict that makes ALSA
+# discard the entire configuration (no audio devices at all).
+defaults.pcm.!card "$AUDIO_OUTPUT_CARD"
+defaults.ctl.!card "$AUDIO_OUTPUT_CARD"
 EOF
     echo "ALSA default output set to card '$AUDIO_OUTPUT_CARD'."
     # USB speakers commonly ship with the mixer muted or at 0%; raise
