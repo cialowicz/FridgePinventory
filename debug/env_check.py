@@ -59,6 +59,14 @@ def main() -> int:
             report(any("dtparam=spi=on" in line.replace(" ", "")
                        for line in spi_lines),
                    f"dtparam=spi=on in {cfg}")
+            # The driver needs hardware CE0 (GPIO 8); spi0-0cs removes all
+            # chip-select lines, so the panel ignores every transfer while
+            # /dev/spidev0.0 still exists and writes "succeed".
+            report(not any("spi0-0cs" in line for line in spi_lines),
+                   "no spi0-0cs overlay",
+                   "" if not any("spi0-0cs" in line for line in spi_lines)
+                   else f"dtoverlay=spi0-0cs disables CE0 — remove it from "
+                        f"{cfg} and reboot")
             for line in spi_lines:
                 flagged = "dtoverlay" in line
                 print(f"         {line}"

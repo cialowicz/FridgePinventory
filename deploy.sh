@@ -53,6 +53,15 @@ else
     echo "SPI interface is enabled and working."
 fi
 
+# The display driver relies on hardware chip-select (CE0 on GPIO 8); the
+# spi0-0cs overlay disables all CS lines, so the panel ignores every SPI
+# transfer while /dev/spidev0.0 still appears to work.
+if grep -q "^dtoverlay=spi0-0cs" "$BOOT_CONFIG"; then
+    echo "Disabling dtoverlay=spi0-0cs in $BOOT_CONFIG (breaks display CS)..."
+    sudo sed -i 's/^dtoverlay=spi0-0cs/#dtoverlay=spi0-0cs/' "$BOOT_CONFIG"
+    echo "spi0-0cs overlay disabled. REBOOT REQUIRED after this script completes!"
+fi
+
 # Install system dependencies required for building packages
 echo "Installing system dependencies..."
 sudo apt update
