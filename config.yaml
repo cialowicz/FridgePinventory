@@ -36,7 +36,7 @@ audio:
   text_to_speech:
     rate: 150
     volume: 0.9
-    voice_id: null  # null for default
+    voice_id: 1  # use debug/mic_test.py to check which works better
   feedback_sounds:
     success_sound: "sounds/success.wav"
     error_sound: "sounds/error.wav"
