@@ -133,31 +133,59 @@ def build_jsgf(known_words=None) -> str:
     )
 
 
-def _sphinx_known_words():
-    """Load the word list from speech_recognition's bundled Sphinx dictionary.
+def _candidate_dictionary_paths():
+    """Yield possible Sphinx pronunciation-dictionary locations.
 
-    Returns None (no filtering) when the dictionary cannot be found, e.g. on
-    dev machines without pocketsphinx data installed.
-    """
+    pocketsphinx 5's bundled cmudict comes first because that is what the
+    grammar decoder actually validates words against; speech_recognition's
+    bundled data is the fallback for older installs."""
+    try:
+        import pocketsphinx
+        module_file = getattr(pocketsphinx, '__file__', None)
+        if module_file:
+            yield os.path.join(
+                os.path.dirname(os.path.abspath(module_file)),
+                'model', 'cmudict-en-us.dict',
+            )
+        get_model_path = getattr(pocketsphinx, 'get_model_path', None)
+        if get_model_path is not None:
+            try:
+                yield os.path.join(get_model_path(), 'cmudict-en-us.dict')
+            except Exception:
+                pass
+    except ImportError:
+        pass
     try:
         import speech_recognition as sr_module
+        yield os.path.join(
+            os.path.dirname(os.path.abspath(sr_module.__file__)),
+            'pocketsphinx-data', 'en-US', 'pronounciation-dictionary.dict',
+        )
     except ImportError:
-        return None
-    dict_path = os.path.join(
-        os.path.dirname(os.path.abspath(sr_module.__file__)),
-        'pocketsphinx-data', 'en-US', 'pronounciation-dictionary.dict',
-    )
-    if not os.path.isfile(dict_path):
-        logger.debug(f"Sphinx dictionary not found at {dict_path}")
-        return None
-    words = set()
-    with open(dict_path, encoding='utf-8', errors='replace') as f:
-        for line in f:
-            token = line.split(None, 1)[0] if line.strip() else ''
-            if token:
-                # Alternate pronunciations appear as "word(2)"
-                words.add(token.split('(')[0].lower())
-    return words or None
+        pass
+
+
+def _sphinx_known_words():
+    """Load the word list from the Sphinx pronunciation dictionary.
+
+    Returns None (no filtering) when no dictionary can be found, e.g. on
+    dev machines without pocketsphinx data installed.
+    """
+    for dict_path in _candidate_dictionary_paths():
+        if not os.path.isfile(dict_path):
+            continue
+        words = set()
+        with open(dict_path, encoding='utf-8', errors='replace') as f:
+            for line in f:
+                token = line.split(None, 1)[0] if line.strip() else ''
+                if token:
+                    # Alternate pronunciations appear as "word(2)"
+                    words.add(token.split('(')[0].lower())
+        if words:
+            logger.debug(f"Grammar vocabulary filtered against {dict_path}")
+            return words
+    logger.debug("No Sphinx dictionary found; grammar not filtered")
+    return None
 
 
 def _grammar_dir() -> str:

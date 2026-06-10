@@ -153,7 +153,9 @@ def deep_test(index):
     print("Saved capture to /tmp/mic_capture.wav (aplay it to verify)")
 
     # Decode twice: with the app's command grammar (what the service uses)
-    # and with the open language model, to compare accuracy.
+    # and with the open language model, to compare accuracy. The grammar pass
+    # drives pocketsphinx 5 directly, same as VoiceRecognitionManager —
+    # speech_recognition's grammar= path breaks on pocketsphinx >= 5.
     grammar = None
     try:
         from pi_inventory_system.voice_grammar import get_grammar_path
@@ -161,23 +163,37 @@ def deep_test(index):
     except Exception as e:
         print(f"(command grammar unavailable: {e})")
 
-    passes = []
     if grammar:
-        passes.append((f"grammar-constrained ({grammar})", {"grammar": grammar}))
-    passes.append(("open language model", {}))
-
-    for label, kwargs in passes:
         t = time.time()
         try:
-            text = recognizer.recognize_sphinx(audio, **kwargs)
-            print(f'Sphinx [{label}] heard: "{text}" ({time.time() - t:.1f}s)')
-        except sr.UnknownValueError:
-            print(f"Sphinx [{label}] could not understand the audio "
-                  f"({time.time() - t:.1f}s) — play /tmp/mic_capture.wav: if "
-                  f"your voice is clear there, it's a recognition problem, "
-                  f"not a capture problem.")
+            from pocketsphinx import Decoder
+            decoder = Decoder(jsgf=grammar, lm=None, samprate=16000)
+            raw = audio.get_raw_data(convert_rate=16000, convert_width=2)
+            decoder.start_utt()
+            decoder.process_raw(raw, full_utt=True)
+            decoder.end_utt()
+            hyp = decoder.hyp()
+            if hyp is None or not hyp.hypstr.strip():
+                print(f"Sphinx [grammar-constrained] no grammar match "
+                      f"({time.time() - t:.1f}s)")
+            else:
+                print(f'Sphinx [grammar-constrained] heard: "{hyp.hypstr}" '
+                      f"({time.time() - t:.1f}s)")
         except Exception as e:
-            print(f"Sphinx [{label}] failed: {e}")
+            print(f"Sphinx [grammar-constrained] failed: {e}")
+
+    t = time.time()
+    try:
+        text = recognizer.recognize_sphinx(audio)
+        print(f'Sphinx [open language model] heard: "{text}" '
+              f"({time.time() - t:.1f}s)")
+    except sr.UnknownValueError:
+        print(f"Sphinx [open language model] could not understand the audio "
+              f"({time.time() - t:.1f}s) — play /tmp/mic_capture.wav: if "
+              f"your voice is clear there, it's a recognition problem, "
+              f"not a capture problem.")
+    except Exception as e:
+        print(f"Sphinx [open language model] failed: {e}")
 
 
 def main() -> None:

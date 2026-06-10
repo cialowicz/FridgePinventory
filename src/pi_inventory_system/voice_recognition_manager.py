@@ -34,6 +34,11 @@ class VoiceRecognitionManager:
         self._recognizer = None
         self._microphone = None
         self._pyaudio_instance = None
+
+        # Direct pocketsphinx 5 decoder for grammar-constrained recognition
+        self._grammar_decoder = None
+        self._grammar_decoder_path = None
+        self._grammar_decoder_failed = False
         
         # State tracking
         self._initialization_failed = False
@@ -316,7 +321,8 @@ class VoiceRecognitionManager:
             try:
                 self.logger.info(f"Attempting recognition with {engine_name} engine")
                 if engine_name == 'sphinx' and sphinx_grammar:
-                    command = recognize_func(audio_data, grammar=sphinx_grammar)
+                    command = self._recognize_sphinx_grammar(
+                        audio_data, sphinx_grammar)
                 else:
                     command = recognize_func(audio_data)
                 self.logger.info(f"Recognized with {engine_name}: {command}")
@@ -334,7 +340,52 @@ class VoiceRecognitionManager:
         
         self.logger.warning("All recognition engines failed")
         return None
-    
+
+    def _get_grammar_decoder(self, grammar_path):
+        """Build (and cache) a pocketsphinx 5 Decoder for the command grammar.
+
+        Returns None when unavailable; the failure latches so the cost and
+        log noise are not re-paid on every command."""
+        if (self._grammar_decoder is not None
+                and self._grammar_decoder_path == grammar_path):
+            return self._grammar_decoder
+        if self._grammar_decoder_failed:
+            return None
+        try:
+            from pocketsphinx import Decoder
+            decoder = Decoder(jsgf=grammar_path, lm=None, samprate=16000)
+        except Exception as e:
+            self._grammar_decoder_failed = True
+            self.logger.warning(
+                f"Grammar decoder unavailable ({e}); "
+                "falling back to open-model Sphinx recognition")
+            return None
+        self._grammar_decoder = decoder
+        self._grammar_decoder_path = grammar_path
+        self.logger.info(f"Sphinx grammar decoder ready ({grammar_path})")
+        return decoder
+
+    def _recognize_sphinx_grammar(self, audio_data, grammar_path):
+        """Grammar-constrained recognition via the pocketsphinx 5 API.
+
+        speech_recognition's recognize_sphinx(grammar=...) plumbing targets
+        the pre-5.0 pocketsphinx API (its FsgModel/Jsgf calls raise TypeError
+        on modern installs), so the decoder is driven directly. Raises
+        sr.UnknownValueError when the utterance does not match the grammar."""
+        decoder = self._get_grammar_decoder(grammar_path)
+        if decoder is None:
+            return self._recognizer.recognize_sphinx(audio_data)
+        raw = audio_data.get_raw_data(convert_rate=16000, convert_width=2)
+        decoder.start_utt()
+        try:
+            decoder.process_raw(raw, full_utt=True)
+        finally:
+            decoder.end_utt()
+        hypothesis = decoder.hyp()
+        if hypothesis is None or not hypothesis.hypstr.strip():
+            raise sr.UnknownValueError()
+        return hypothesis.hypstr
+
     def cleanup(self):
         """Clean up audio resources."""
         with self._lock:
@@ -354,6 +405,9 @@ class VoiceRecognitionManager:
                 self._retry_count = 0
                 self._microphone_calibrated = False
                 self._pyaudio_logged = False
+                self._grammar_decoder = None
+                self._grammar_decoder_path = None
+                self._grammar_decoder_failed = False
                 
                 self.logger.info("Audio cleanup completed")
                 
