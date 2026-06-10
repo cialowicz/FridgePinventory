@@ -24,23 +24,29 @@ sudo systemctl daemon-reload
  
 # Check and enable SPI interface
 echo "Checking SPI interface..."
+# Raspberry Pi OS Bookworm moved the boot config to /boot/firmware.
+if [ -f /boot/firmware/config.txt ]; then
+    BOOT_CONFIG="/boot/firmware/config.txt"
+else
+    BOOT_CONFIG="/boot/config.txt"
+fi
 if ! ls /dev/spidev0.* &> /dev/null; then
     echo "WARNING: SPI devices not found. SPI interface may not be enabled."
-    echo "Checking /boot/config.txt..."
-    
-    if grep -q "^dtparam=spi=on" /boot/config.txt; then
+    echo "Checking $BOOT_CONFIG..."
+
+    if grep -q "^dtparam=spi=on" "$BOOT_CONFIG"; then
         echo "SPI is enabled in config but devices not found. You may need to reboot."
-    elif grep -q "^#dtparam=spi=on" /boot/config.txt; then
-        echo "Enabling SPI in /boot/config.txt..."
-        sudo sed -i 's/^#dtparam=spi=on/dtparam=spi=on/' /boot/config.txt
+    elif grep -q "^#dtparam=spi=on" "$BOOT_CONFIG"; then
+        echo "Enabling SPI in $BOOT_CONFIG..."
+        sudo sed -i 's/^#dtparam=spi=on/dtparam=spi=on/' "$BOOT_CONFIG"
         echo "SPI enabled. REBOOT REQUIRED after this script completes!"
-    elif grep -q "dtparam=spi=off" /boot/config.txt; then
-        echo "Enabling SPI in /boot/config.txt..."
-        sudo sed -i 's/dtparam=spi=off/dtparam=spi=on/' /boot/config.txt
+    elif grep -q "dtparam=spi=off" "$BOOT_CONFIG"; then
+        echo "Enabling SPI in $BOOT_CONFIG..."
+        sudo sed -i 's/dtparam=spi=off/dtparam=spi=on/' "$BOOT_CONFIG"
         echo "SPI enabled. REBOOT REQUIRED after this script completes!"
     else
-        echo "Adding SPI enable to /boot/config.txt..."
-        echo "dtparam=spi=on" | sudo tee -a /boot/config.txt
+        echo "Adding SPI enable to $BOOT_CONFIG..."
+        echo "dtparam=spi=on" | sudo tee -a "$BOOT_CONFIG"
         echo "SPI enabled. REBOOT REQUIRED after this script completes!"
     fi
 else
@@ -373,7 +379,7 @@ if ! ls /dev/spidev0.* &> /dev/null; then
     echo "⚠️  IMPORTANT: REBOOT REQUIRED ⚠️"
     echo "SPI interface was enabled but requires a reboot to take effect."
     echo "After rebooting:"
-    echo "  1. Run 'python3 full_hardware_diagnostic.py' to verify hardware"
+    echo "  1. Run 'fridge-diagnostic' (in ~/.epaper_venv) to verify hardware"
     echo "  2. Start the service: sudo systemctl start fridgepinventory.service"
     echo ""
 else

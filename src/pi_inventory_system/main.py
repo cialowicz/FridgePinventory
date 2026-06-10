@@ -20,7 +20,7 @@ from .constants import (
 )
 from .database_manager import create_database_manager
 from .diagnostics import run_startup_diagnostics
-from .display_manager import cleanup_display, initialize_display
+from .display_manager import cleanup_display
 from .inventory_controller import InventoryController
 from .motion_loop import ACTIVE, IDLE, MotionLoop
 from .motion_sensor_manager import MotionSensorManager
@@ -136,23 +136,25 @@ class FridgePinventoryApp:
 
     def initialize(self) -> bool:
         self.logger.info("Starting FridgePinventory initialization...")
-        display_ok, motion_ok, audio_ok, display_instance = run_startup_diagnostics(
-            self.config_manager,
-            motion_manager=self.motion_manager,
-            audio_manager=self.audio_feedback,
-        )
+        try:
+            display_ok, motion_ok, audio_ok, display_instance = run_startup_diagnostics(
+                self.config_manager,
+                motion_manager=self.motion_manager,
+                audio_manager=self.audio_feedback,
+            )
+        except Exception as e:
+            self.logger.error(f"Startup diagnostics failed: {e}")
+            self.logger.error(f"Traceback: {traceback.format_exc()}")
+            return False
         self.hardware_status = (display_ok, motion_ok, audio_ok)
         self.display = display_instance
-        if not self.display and display_ok:
-            self.logger.warning("Display reported OK but no instance returned, retrying init")
-            self.display = initialize_display(self.config_manager)
 
         self.controller = InventoryController(self.db_manager, self.display, self.config_manager)
 
-        if audio_ok:
-            self.audio_feedback.play_sound('success')
-        # Diagnostics may have tripped a transient failure or two during the
-        # WAV smoke-test; re-enable both breakers so runtime feedback is heard.
+        # Diagnostics already played the success sound as its audio probe, so
+        # no second chime here. It may also have tripped a transient failure
+        # or two during the WAV smoke-test; re-enable both breakers so runtime
+        # feedback is heard.
         self.audio_feedback.reset_circuit_breakers()
         self.logger.info("FridgePinventory initialization complete")
         return True
@@ -425,14 +427,14 @@ class FridgePinventoryApp:
         return loop.mode
 
     def run(self) -> None:
-        if not self.initialize():
-            self.logger.error("Failed to initialize application")
-            return
-
-        display_ok, motion_ok, _ = self.hardware_status
-        self.running = True
-
         try:
+            if not self.initialize():
+                self.logger.error("Failed to initialize application")
+                return
+
+            display_ok, motion_ok, _ = self.hardware_status
+            self.running = True
+
             if display_ok:
                 self._refresh_display_best_effort()
 

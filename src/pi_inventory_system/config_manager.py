@@ -176,20 +176,24 @@ class ConfigManager:
     def _convert_env_value(self, key: str, value: str) -> Any:
         """Convert environment variable string to appropriate type."""
         if key in ['size', 'fallback_size', 'items_per_row', 'lozenge_height', 'spacing',
-                   'margin', 'low_stock_threshold', 'timeout', 'phrase_time_limit', 'rate',
+                   'margin', 'low_stock_threshold', 'phrase_time_limit', 'rate',
                    'device_index', 'pin', 'grayscale_levels', 'cache_size']:
             try:
                 return int(value)
             except ValueError:
-                logger.warning(f"Invalid integer value for {key}: {value}")
+                logger.warning(f"Invalid integer value for {key}: {value}; override ignored")
                 return None
+        # 'timeout' is float because the key is shared by sections with
+        # different scales: audio.voice_recognition.timeout (whole seconds)
+        # and database_advanced.timeout (fractional seconds); both consumers
+        # accept floats.
         elif key in ['similarity_threshold', 'volume', 'main_loop_delay',
                      'motion_check_interval', 'idle_delay', 'max_stale_seconds',
-                     'simulation_voice_interval', 'recognition_grace']:
+                     'simulation_voice_interval', 'recognition_grace', 'timeout']:
             try:
                 return float(value)
             except ValueError:
-                logger.warning(f"Invalid float value for {key}: {value}")
+                logger.warning(f"Invalid float value for {key}: {value}; override ignored")
                 return None
         elif key in ['enabled', 'auto_detect', 'enable_diagnostics', 'enable_spacy',
                      'clear_on_shutdown', 'show_startup_message']:

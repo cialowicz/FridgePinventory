@@ -427,3 +427,38 @@ def test_cleanup_continues_after_resource_failure(app_context):
     voice.cleanup.assert_called()
     audio.cleanup.assert_called()
     db.cleanup.assert_called()
+
+
+def test_initialize_returns_false_on_diagnostics_exception(app_context):
+    app, _, _, _, _, _, _, _ = app_context
+
+    with patch('pi_inventory_system.main.run_startup_diagnostics',
+               side_effect=RuntimeError("SPI exploded")):
+        assert app.initialize() is False
+
+
+def test_run_cleans_up_when_initialize_raises(app_context):
+    """A diagnostics crash during startup must still run _cleanup so GPIO,
+    audio worker and DB are released."""
+    app, _, db, _, _, motion, _, audio = app_context
+
+    with patch('pi_inventory_system.main.run_startup_diagnostics',
+               side_effect=RuntimeError("SPI exploded")):
+        app.run()
+
+    motion.cleanup.assert_called()
+    audio.cleanup.assert_called()
+    db.cleanup.assert_called()
+
+
+def test_initialize_does_not_replay_startup_chime(app_context):
+    """Diagnostics already played the success sound as its audio probe;
+    initialize must not chime a second time seconds later."""
+    app, _, _, _, _, _, _, audio = app_context
+
+    with patch('pi_inventory_system.main.run_startup_diagnostics',
+               return_value=(True, True, True, MagicMock())):
+        assert app.initialize() is True
+
+    audio.play_sound.assert_not_called()
+    audio.reset_circuit_breakers.assert_called_once()
