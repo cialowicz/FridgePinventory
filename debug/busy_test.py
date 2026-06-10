@@ -22,12 +22,22 @@ def main() -> None:
     epd = epd3in97.EPD()
     epdconfig = epd3in97.epdconfig
 
-    samples = []
+    # BUSY asserts in two distinct situations: the boot pulse after the
+    # hardware reset inside init (GPIO-driven, proves nothing about SPI),
+    # and during a refresh after the 0x20 command (proves the panel received
+    # SPI commands). Track the phases separately so the verdict keys on the
+    # refresh, not the reset.
+    phase = {"name": "init"}
+    busy_by_phase = {"init": False, "clear": False}
+    sample_count = 0
     stop = threading.Event()
 
     def watch() -> None:
+        nonlocal sample_count
         while not stop.is_set():
-            samples.append(epdconfig.digital_read(epd.busy_pin))
+            if epdconfig.digital_read(epd.busy_pin):
+                busy_by_phase[phase["name"]] = True
+            sample_count += 1
             time.sleep(0.002)
 
     watcher = threading.Thread(target=watch, daemon=True)
@@ -43,6 +53,7 @@ def main() -> None:
         print("GPIO availability (is the service really stopped?).")
         return
 
+    phase["name"] = "clear"
     t = time.time()
     epd.Clear()
     clear_elapsed = time.time() - t
@@ -51,16 +62,22 @@ def main() -> None:
     stop.set()
     watcher.join()
 
-    busy_seen = 1 in samples
-    print(f"BUSY ever asserted: {busy_seen} ({len(samples)} samples)")
+    print(f"BUSY during init (reset boot pulse, GPIO path): "
+          f"{busy_by_phase['init']}")
+    print(f"BUSY during Clear refresh (SPI command path):   "
+          f"{busy_by_phase['clear']}  ({sample_count} samples)")
     print()
-    if busy_seen and clear_elapsed > 1.0:
+    if busy_by_phase["clear"] and clear_elapsed > 1.0:
         print("Panel is executing refreshes. If the screen stayed blank during")
         print("Clear(), suspect the panel glass / flat-flex data lines — run")
         print("test_pattern.py to check image output.")
+    elif busy_by_phase["init"]:
+        print("Controller is alive (boot pulse seen) but never received the")
+        print("refresh command: SPI path failure. Check MOSI/SCLK/CS wiring or")
+        print("the board's interface-select switch; run spi_loopback.py to")
+        print("verify the Pi side of the bus.")
     else:
-        print("Panel did not execute the refresh (no busy pulse, instant return).")
-        print("Run pin_probe.py next to separate power/reset from SPI issues.")
+        print("No BUSY activity at all — power/reset problem. Run pin_probe.py.")
 
     epd.sleep()
 
