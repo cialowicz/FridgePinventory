@@ -91,17 +91,28 @@ def main() -> int:
             report(False, "SPI pin mux", f"{tool} failed: {e}")
         if out:
             mux_ok = True
+            cs_claimed = True
             for line in out.strip().splitlines():
                 print(f"         {line.strip()}")
                 gpio = line.split(":")[0].strip()
-                # 8/CE0 may legitimately be a kernel-driven GPIO output;
                 # 9-11 (MISO/MOSI/SCLK) must show their SPI0 alt function.
                 if gpio in ("9", "10", "11") and "SPI0" not in line:
                     mux_ok = False
+                # 8/CE0 is either in its SPI0 alt function or claimed by the
+                # SPI driver as a GPIO output (cs-gpios). Function "none"
+                # means no chip-select exists in the LIVE device tree, so the
+                # panel ignores every transfer.
+                if gpio == "8" and "none" in line:
+                    cs_claimed = False
             report(mux_ok, "GPIO 9/10/11 muxed to SPI0",
                    "" if mux_ok else
                    "pins not in SPI0 alt function — SPI writes go nowhere; "
                    "check dtoverlays and reboot after config changes")
+            report(cs_claimed, "GPIO 8 (CE0) claimed as chip-select",
+                   "" if cs_claimed else
+                   "CE0 is unclaimed in the running device tree (spi0-0cs "
+                   "still active). config.txt is only read at boot — if the "
+                   "file is already clean, REBOOT and re-run this check")
 
     # Python deps the driver needs
     for mod in ("spidev", "gpiozero", "numpy", "PIL"):
