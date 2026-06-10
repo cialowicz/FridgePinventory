@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, List, Optional
 
 from .constants import MAX_QUANTITY
-from .exceptions import DatabaseError
+from .exceptions import DatabaseError, InventoryError
 from .inventory_item import InventoryItem
 
 logger = logging.getLogger(__name__)
@@ -217,17 +217,24 @@ class DatabaseManager:
                 raise
     
     def get_current_quantity(self, item_name: str) -> int:
-        """Get the current quantity of an item."""
+        """Get the current quantity of an item. Raises DatabaseError on
+        storage failure."""
         with self._lock:
-            conn = self._get_connection()
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT quantity FROM inventory WHERE item_name = ?",
-                (item_name,)
-            )
-            result = cursor.fetchone()
-            cursor.close()
-            return result['quantity'] if result else 0
+            try:
+                conn = self._get_connection()
+                cursor = conn.cursor()
+                try:
+                    cursor.execute(
+                        "SELECT quantity FROM inventory WHERE item_name = ?",
+                        (item_name,)
+                    )
+                    result = cursor.fetchone()
+                finally:
+                    cursor.close()
+                return result['quantity'] if result else 0
+            except sqlite3.Error as e:
+                logger.error(f"Database error in get_current_quantity({item_name}): {e}")
+                raise DatabaseError(str(e)) from e
 
     def _set_inventory_quantity(
         self,
@@ -289,7 +296,8 @@ class DatabaseManager:
             raise ValueError(f"quantity cannot exceed {MAX_QUANTITY}")
     
     def add_item(self, item_name: str, quantity: int) -> bool:
-        """Add items to inventory. Raises DatabaseError on storage failure."""
+        """Add items to inventory. Raises DatabaseError on storage failure
+        and InventoryError when the addition would exceed MAX_QUANTITY."""
         self._validate_quantity(quantity, allow_zero=False)
         with self._lock:
             try:
@@ -299,7 +307,12 @@ class DatabaseManager:
                         current = self.get_current_quantity(item_name)
                         new_quantity = current + quantity
                         if new_quantity > MAX_QUANTITY:
-                            raise ValueError(f"quantity cannot exceed {MAX_QUANTITY}")
+                            # Typed so the controller's InventoryError handler
+                            # turns this into spoken feedback, not a generic
+                            # "unexpected error".
+                            raise InventoryError(
+                                f"quantity cannot exceed {MAX_QUANTITY}"
+                            )
                         action_id = self._next_action_id(cursor)
                         self._set_inventory_quantity(cursor, item_name, new_quantity)
                         self._record_history(cursor, item_name, current, new_quantity,
@@ -421,16 +434,27 @@ class DatabaseManager:
                 raise DatabaseError(str(e)) from e
     
     def get_inventory(self) -> List[tuple[str, int]]:
-        """Get the current inventory state."""
+        """Get the current inventory state. Raises DatabaseError on storage
+        failure."""
         with self._lock:
-            conn = self._get_connection()
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT item_name, quantity FROM inventory WHERE quantity > 0 ORDER BY item_name"
-            )
-            result = [(row['item_name'], row['quantity']) for row in cursor.fetchall()]
-            cursor.close()
-            return result
+            try:
+                conn = self._get_connection()
+                cursor = conn.cursor()
+                try:
+                    cursor.execute(
+                        "SELECT item_name, quantity FROM inventory "
+                        "WHERE quantity > 0 ORDER BY item_name"
+                    )
+                    result = [
+                        (row['item_name'], row['quantity'])
+                        for row in cursor.fetchall()
+                    ]
+                finally:
+                    cursor.close()
+                return result
+            except sqlite3.Error as e:
+                logger.error(f"Database error in get_inventory: {e}")
+                raise DatabaseError(str(e)) from e
     
     def cleanup(self):
         """Close the database connection."""

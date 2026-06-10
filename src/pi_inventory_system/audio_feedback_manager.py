@@ -34,7 +34,8 @@ def _play_wav_file(path: str) -> None:
         return
     aplay = shutil.which("aplay")
     if aplay:
-        subprocess.run([aplay, "-q", path], check=True)
+        # Bounded so a wedged ALSA device cannot hold the sound lock forever.
+        subprocess.run([aplay, "-q", path], check=True, timeout=10)
         return
     raise RuntimeError("No WAV playback backend available (simpleaudio or aplay)")
 
@@ -257,37 +258,31 @@ class AudioFeedbackManager:
                 return False
     
     def output_confirmation(self, message: str) -> bool:
-        """Output confirmation with TTS and sound.
-        
-        Args:
-            message: Confirmation message.
-            
+        """Play the success chime, then speak the confirmation.
+
+        The chime goes first: play_sound is synchronous while speak only
+        queues to the TTS worker, so the reverse order had the chime firing
+        over the start of the spoken message.
+
         Returns:
             True if output was successful.
         """
-        success = True
-        
+        success = self.play_sound('success')
+
         if message:
             success = self.speak(message) and success
-        
-        success = self.play_sound('success') and success
         return success
-    
+
     def output_error(self, message: str) -> bool:
-        """Output error with TTS and sound.
-        
-        Args:
-            message: Error message.
-            
+        """Play the error chime, then speak the error message.
+
         Returns:
             True if output was successful.
         """
-        success = True
-        
+        success = self.play_sound('error')
+
         if message:
             success = self.speak(message) and success
-        
-        success = self.play_sound('error') and success
         return success
     
     def cleanup(self):

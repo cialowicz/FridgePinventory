@@ -82,9 +82,13 @@ def test_mutators_reject_invalid_quantities(db_manager_instance, method, args):
 
 
 def test_add_rejects_quantity_that_would_exceed_limit(db_manager_instance):
+    from pi_inventory_system.exceptions import InventoryError
+
     db_manager_instance.add_item("salmon", 10000)
-    with pytest.raises(ValueError):
+    with pytest.raises(InventoryError):
         db_manager_instance.add_item("salmon", 1)
+    # The rolled-back transaction must not have touched the row.
+    assert db_manager_instance.get_current_quantity("salmon") == 10000
 
 
 def test_database_constraints_reject_out_of_range_direct_writes(db_manager_instance):
@@ -283,3 +287,18 @@ def test_split_sql_statements_handles_trigger():
     assert len(statements) == 2
     assert statements[0].startswith("CREATE TABLE")
     assert "BEGIN" in statements[1] and statements[1].endswith("END;")
+
+
+def test_read_methods_wrap_sqlite_errors(db_manager_instance, monkeypatch):
+    """get_current_quantity / get_inventory raise DatabaseError, not raw
+    sqlite3.Error, so callers' typed handlers actually catch them."""
+    from pi_inventory_system.exceptions import DatabaseError
+
+    def boom(*args, **kwargs):
+        raise sqlite3.OperationalError("disk I/O error")
+
+    monkeypatch.setattr(db_manager_instance, "_get_connection", boom)
+    with pytest.raises(DatabaseError):
+        db_manager_instance.get_current_quantity("salmon")
+    with pytest.raises(DatabaseError):
+        db_manager_instance.get_inventory()

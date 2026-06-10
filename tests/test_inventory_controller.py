@@ -315,3 +315,13 @@ def test_run_loop_keyboard_interrupt(controller):
 def test_run_loop_exception(controller):
     """Test handling general exception in run loop."""
     pass
+
+
+def test_undo_with_empty_history_reports_nothing_to_undo(controller):
+    """Empty history is not a storage failure; tell the user plainly."""
+    controller._db_manager.undo_last_change.return_value = (False, None)
+
+    success, feedback = controller.process_command("undo")
+
+    assert success is False
+    assert feedback == "Nothing to undo."

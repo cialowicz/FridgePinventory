@@ -242,7 +242,10 @@ class InventoryController:
             except DatabaseError as e:
                 logging.error(f"Undo failed at the storage layer: {e}")
                 return False, None, None
-            if success and undo_item_name:
+            if not success:
+                # Empty history is not a failure to report vaguely.
+                raise CommandProcessingError("Nothing to undo.")
+            if undo_item_name:
                 return True, self._db_manager.get_current_quantity(undo_item_name), undo_item_name
             return success, None, undo_item_name
 

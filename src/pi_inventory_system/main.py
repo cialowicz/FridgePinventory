@@ -220,13 +220,13 @@ class FridgePinventoryApp:
                 success, feedback = self.controller.process_command(command)
                 self.logger.info(f"Command result: {feedback}")
                 if success:
-                    # Speak the confirmation, but choose the chime based on the
-                    # resulting state: removed-from-inventory uses the warning
-                    # tone so users distinguish "added/updated" from "now empty".
+                    # Chime first, then speak: removed-from-inventory uses the
+                    # warning tone so users distinguish "added/updated" from
+                    # "now empty".
                     spoken = feedback or "Command executed successfully."
                     if feedback and "removed from inventory" in feedback:
-                        self.audio_feedback.speak(spoken)
                         self.audio_feedback.play_sound('warning')
+                        self.audio_feedback.speak(spoken)
                     else:
                         self.audio_feedback.output_confirmation(spoken)
                 else:

@@ -109,3 +109,36 @@ def test_circuit_breaker_disables_after_repeated_failures(cfg, tmp_path):
             manager.play_sound('success')
         assert manager._sound_disabled is True
         assert manager.play_sound('success') is False
+
+
+@pytest.mark.parametrize("method,sound", [
+    ("output_confirmation", "success"),
+    ("output_error", "error"),
+])
+def test_output_plays_chime_before_speech(cfg, method, sound):
+    """The chime is the attention cue; it must precede the spoken message,
+    not fire over it while the async TTS worker is still dequeuing."""
+    with patch('pi_inventory_system.audio_feedback_manager.PYTTSX3_AVAILABLE', False):
+        manager = AudioFeedbackManager(config_manager=cfg)
+    order = []
+    manager.play_sound = MagicMock(side_effect=lambda t: order.append(('sound', t)) or True)
+    manager.speak = MagicMock(side_effect=lambda m: order.append(('speak', m)) or True)
+
+    assert getattr(manager, method)("message") is True
+
+    assert order == [('sound', sound), ('speak', 'message')]
+
+
+def test_play_wav_aplay_fallback_has_timeout(tmp_path):
+    """A hung aplay process must not block the sound lock forever."""
+    from pi_inventory_system import audio_feedback_manager as afm
+
+    wav = tmp_path / "s.wav"
+    wav.write_bytes(b"RIFF")
+    with patch.object(afm, 'SIMPLEAUDIO_AVAILABLE', False), \
+         patch.object(afm.shutil, 'which', return_value='/usr/bin/aplay'), \
+         patch.object(afm.subprocess, 'run') as run:
+        afm._play_wav_file(str(wav))
+
+    timeout = run.call_args.kwargs.get('timeout')
+    assert isinstance(timeout, (int, float)) and timeout > 0
