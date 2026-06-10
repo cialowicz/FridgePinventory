@@ -130,6 +130,26 @@ def test_detect_motion_on_pi5(mock_subprocess, mock_check_pi, mock_check_pi5, mo
         assert 'get' in mock_subprocess.call_args_list[0].args[0]
 
 
+@patch('pi_inventory_system.platform_info.is_raspberry_pi_5', return_value=False)
+@patch('pi_inventory_system.platform_info.is_raspberry_pi', return_value=True)
+def test_missing_rpi_gpio_on_real_pi_reports_failure(
+    mock_check_pi,
+    mock_check_pi5,
+    mock_config_manager,
+):
+    """On a real Pi, missing RPi.GPIO must surface as a hardware failure.
+    The old MockGPIO fallback made diagnostics report the sensor healthy
+    while input() could never see motion."""
+    with patch.dict(sys.modules, {'RPi': None, 'RPi.GPIO': None}):
+        manager = MotionSensorManager(config_manager=mock_config_manager)
+
+    assert manager.is_supported() is True   # platform supports it...
+    assert manager.is_healthy() is False    # ...but hardware access failed
+    assert manager.is_available() is False
+    assert manager.detect_motion() is False
+    assert "RPi.GPIO" in (manager.last_error or "")
+
+
 @patch('pi_inventory_system.platform_info.is_raspberry_pi_5', return_value=True)
 @patch('pi_inventory_system.platform_info.is_raspberry_pi', return_value=True)
 def test_motion_pin_defaults_to_gpio4_when_config_pin_is_none(

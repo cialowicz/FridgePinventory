@@ -31,27 +31,3 @@ def is_raspberry_pi(model_file: str = DEFAULT_MODEL_FILE,
 def is_raspberry_pi_5(model_file: str = DEFAULT_MODEL_FILE) -> bool:
     model = _read_model(model_file)
     return model is not None and DEFAULT_PI5_STRING in model
-
-
-class MockGPIO:
-    """In-process stand-in for RPi.GPIO when not running on a Pi."""
-
-    BCM = "BCM"
-    IN = "IN"
-    OUT = "OUT"
-
-    @staticmethod
-    def setmode(mode):
-        pass
-
-    @staticmethod
-    def setup(pin, mode):
-        pass
-
-    @staticmethod
-    def input(pin):
-        return False
-
-    @staticmethod
-    def cleanup():
-        pass

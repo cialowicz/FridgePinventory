@@ -59,13 +59,21 @@ class MotionSensorManager:
         return motion
     
     def _init_gpio_module(self):
-        """Initialize GPIO module for non-Pi5 systems."""
+        """Initialize GPIO module for non-Pi5 systems.
+
+        Only ever called on a real Pi (guarded in __init__), so a missing
+        RPi.GPIO is a deployment fault that must surface as a hardware
+        failure. Substituting a mock here would make diagnostics pass while
+        input() could never observe motion.
+        """
         try:
             import RPi.GPIO as GPIO
             self._gpio = GPIO
         except ImportError:
-            self.logger.warning("RPi.GPIO not available, using mock")
-            self._gpio = platform_info.MockGPIO()
+            self._set_error(
+                "RPi.GPIO not installed; motion sensor unavailable "
+                "(install the 'hardware' extra or RPi.GPIO)"
+            )
     
     def is_supported(self) -> bool:
         """Check if motion sensor functionality is available and enabled."""
