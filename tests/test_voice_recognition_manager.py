@@ -37,6 +37,99 @@ def _microphone():
     return mic
 
 
+def _fake_pyaudio(devices):
+    """Fake PyAudio instance exposing a device list for enumeration."""
+    pa = MagicMock()
+    pa.get_device_count.return_value = len(devices)
+    pa.get_device_info_by_index.side_effect = lambda i: devices[i]
+    return pa
+
+
+# Device list mirroring the appliance Pi after the asound.conf change:
+# HDMI outputs first, then the USB mic and USB speaker.
+_PI_DEVICES = [
+    {'name': 'vc4hdmi0', 'maxInputChannels': 0},
+    {'name': 'UACDemoV1.0: USB Audio (hw:3,0)', 'maxInputChannels': 0},
+    {'name': 'USB PnP Sound Device: Audio (hw:2,0)', 'maxInputChannels': 1},
+]
+
+
+def test_device_name_match_wins_over_stale_index():
+    manager = VoiceRecognitionManager(config_manager=_config(cooldown=0))
+    manager._pyaudio_instance = _fake_pyaudio(_PI_DEVICES)
+
+    index = manager._resolve_input_device_index(
+        {'device_name': 'usb pnp', 'device_index': 1})
+
+    assert index == 2
+
+
+def test_stale_index_falls_back_to_input_capable_device():
+    # Configured index points at an output-only device (indices shifted)
+    manager = VoiceRecognitionManager(config_manager=_config(cooldown=0))
+    manager._pyaudio_instance = _fake_pyaudio(_PI_DEVICES)
+
+    assert manager._resolve_input_device_index({'device_index': 1}) == 2
+
+
+def test_valid_configured_index_is_kept():
+    manager = VoiceRecognitionManager(config_manager=_config(cooldown=0))
+    manager._pyaudio_instance = _fake_pyaudio(_PI_DEVICES + [
+        {'name': 'Built-in Microphone', 'maxInputChannels': 2},
+    ])
+
+    assert manager._resolve_input_device_index({'device_index': 3}) == 3
+
+
+def test_out_of_range_index_falls_back():
+    manager = VoiceRecognitionManager(config_manager=_config(cooldown=0))
+    manager._pyaudio_instance = _fake_pyaudio(_PI_DEVICES)
+
+    assert manager._resolve_input_device_index({'device_index': 7}) == 2
+
+
+def test_unmatched_name_falls_back_to_usb_input():
+    manager = VoiceRecognitionManager(config_manager=_config(cooldown=0))
+    manager._pyaudio_instance = _fake_pyaudio([
+        {'name': 'Built-in Microphone', 'maxInputChannels': 2},
+        {'name': 'USB PnP Sound Device: Audio (hw:2,0)', 'maxInputChannels': 1},
+    ])
+
+    assert manager._resolve_input_device_index({'device_name': 'blue yeti'}) == 1
+
+
+def test_no_pyaudio_uses_configured_index_verbatim():
+    manager = VoiceRecognitionManager(config_manager=_config(cooldown=0))
+    manager._pyaudio_instance = None
+
+    assert manager._resolve_input_device_index({'device_index': 1}) == 1
+
+
+def test_nothing_configured_uses_system_default():
+    manager = VoiceRecognitionManager(config_manager=_config(cooldown=0))
+    manager._pyaudio_instance = _fake_pyaudio(_PI_DEVICES)
+
+    assert manager._resolve_input_device_index({}) is None
+
+
+def test_microphone_uses_resolved_index():
+    cfg = MagicMock()
+    cfg.get_audio_config.return_value = {
+        'voice_recognition': {'device_name': 'USB PnP', 'device_index': 1},
+    }
+    mic = _microphone()
+
+    with patch('pi_inventory_system.voice_recognition_manager.sr.Microphone',
+               return_value=mic) as microphone_cls:
+        manager = VoiceRecognitionManager(config_manager=cfg)
+        manager._recognizer = MagicMock()
+        manager._pyaudio_instance = _fake_pyaudio(_PI_DEVICES)
+
+        assert manager._initialize_microphone() is True
+
+    microphone_cls.assert_called_once_with(device_index=2)
+
+
 def test_initialization_retries_after_cooldown():
     cfg = _config(cooldown=0)
     recognizer = MagicMock()

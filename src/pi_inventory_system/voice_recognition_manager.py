@@ -118,25 +118,85 @@ class VoiceRecognitionManager:
         except Exception as e:
             self.logger.error(f"Error enumerating audio devices: {e}")
     
+    def _input_devices(self):
+        """List (index, name) for devices that can capture audio."""
+        devices = []
+        if not self._pyaudio_instance:
+            return devices
+        try:
+            for i in range(self._pyaudio_instance.get_device_count()):
+                try:
+                    info = self._pyaudio_instance.get_device_info_by_index(i)
+                except Exception:
+                    continue
+                channels = info.get('maxInputChannels', 0)
+                if isinstance(channels, (int, float)) and channels > 0:
+                    devices.append((i, str(info.get('name', ''))))
+        except Exception as e:
+            self.logger.error(f"Error enumerating input devices: {e}")
+        return devices
+
+    def _resolve_input_device_index(self, voice_config) -> Optional[int]:
+        """Pick the PyAudio device index for the microphone.
+
+        PortAudio indices shift when cards enumerate in a different order, so
+        a configured device_name (case-insensitive substring) is matched
+        against the live input-device list first; a configured device_index
+        is used only if it still points at an input-capable device. A stale
+        selection falls back to the first input device (preferring USB ones)
+        instead of failing every listen. Returns None for the system default.
+        """
+        device_name = voice_config.get('device_name')
+        device_index = voice_config.get('device_index')
+        if device_index is not None and (
+                not isinstance(device_index, int) or device_index < 0):
+            self.logger.warning(f"Invalid device_index {device_index!r}, ignoring")
+            device_index = None
+
+        inputs = self._input_devices()
+        if not inputs:
+            # No enumeration available; trust the configured index as-is.
+            return device_index
+
+        if isinstance(device_name, str) and device_name.strip():
+            wanted = device_name.strip().casefold()
+            for idx, name in inputs:
+                if wanted in name.casefold():
+                    self.logger.info(
+                        f"Microphone matched by name: {name} (index {idx})")
+                    return idx
+            self.logger.warning(
+                f"No input device matches device_name {device_name!r}")
+        elif device_name is None and device_index is None:
+            return None
+
+        if device_index is not None:
+            if any(idx == device_index for idx, _ in inputs):
+                return device_index
+            self.logger.warning(
+                f"Configured device_index {device_index} is not an "
+                f"input-capable device (indices shift across boots)")
+
+        index, name = next(
+            (d for d in inputs if 'usb' in d[1].casefold()), inputs[0])
+        self.logger.info(f"Falling back to input device: {name} (index {index})")
+        return index
+
     def _initialize_microphone(self) -> bool:
         """Initialize the microphone."""
         if self._microphone is not None:
             return True
-        
+
         try:
             # Get audio configuration
             audio_config = self._config.get_audio_config()
             voice_config = audio_config.get('voice_recognition', {})
-            device_index = voice_config.get('device_index')
-            
-            # Validate and use device index if specified
+            self._initialize_pyaudio()
+            device_index = self._resolve_input_device_index(voice_config)
+
             if device_index is not None:
-                if isinstance(device_index, int) and device_index >= 0:
-                    self._microphone = sr.Microphone(device_index=device_index)
-                    self.logger.info(f"Using microphone device index: {device_index}")
-                else:
-                    self.logger.warning(f"Invalid device_index {device_index}, using default")
-                    self._microphone = sr.Microphone()
+                self._microphone = sr.Microphone(device_index=device_index)
+                self.logger.info(f"Using microphone device index: {device_index}")
             else:
                 self._microphone = sr.Microphone()
                 self.logger.info("Using default system microphone")
