@@ -31,6 +31,18 @@ def test_grammar_includes_command_vocabulary():
         assert phrase in jsgf
 
 
+def test_grammar_includes_clear_branch():
+    jsgf = voice_grammar.build_jsgf()
+    assert "<clear_verb> = clear;" in jsgf
+    assert "<clear_verb> [the] <item>" in jsgf
+
+
+def test_clear_branch_dropped_when_word_unknown():
+    known = {"add", "remove", "beef", "ground", "one", "of", "the", "all"}
+    jsgf = voice_grammar.build_jsgf(known_words=known)
+    assert "<clear_verb>" not in jsgf
+
+
 def test_unknown_words_are_filtered():
     known = {"add", "remove", "set", "undo", "chicken", "beef", "ground",
              "one", "two", "a", "an", "dozen", "of", "the", "all", "to"}

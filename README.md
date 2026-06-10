@@ -125,6 +125,7 @@ To exit the application, press Ctrl+C.
 - "Remove X" - Remove one of item X
 - "Remove N of X" - Remove N quantity of item X
 - "Remove all X" - Remove all of item X
+- "Clear X" - Alias for "Remove all X"
 - "Set X to N" - Set quantity of item X to N
 - "Undo" - Undo the last change
 

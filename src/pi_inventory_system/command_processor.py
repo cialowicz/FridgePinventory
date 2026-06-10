@@ -37,8 +37,31 @@ ADD_VERBS = ('add', 'put', 'place', 'store', 'stock', 'insert', 'got', 'bought',
 REMOVE_VERBS = ('remove', 'take', 'delete', 'use', 'used', 'consume', 'consumed',
                 'subtract', 'ate', 'finished')
 SET_VERBS = ('set', 'change', 'update', 'adjust', 'modify', 'correct', 'fix')
+# "clear X" is an alias for "remove all X"; rewritten before classification.
+CLEAR_VERBS = ('clear',)
 VERB_LABELS = ((ADD_VERBS, "add"), (REMOVE_VERBS, "remove"), (SET_VERBS, "set"))
 ITEM_FILLER_WORDS = {'of', 'the'}
+
+_CLEAR_RE = re.compile(
+    r"\b(?:" + "|".join(re.escape(verb) for verb in CLEAR_VERBS) + r")\b"
+)
+
+
+def _alias_clear_command(command_text: str) -> str:
+    """Rewrite 'clear X' to 'remove all X'.
+
+    Only when no other command verb precedes the clear-verb, so item phrases
+    like 'add clear soup' and undo phrasings keep their meaning."""
+    match = _CLEAR_RE.search(command_text)
+    if not match:
+        return command_text
+    prefix = command_text[:match.start()]
+    earlier_verbs = tuple(
+        verb for verbs, _ in VERB_LABELS for verb in verbs) + UNDO_WORDS
+    earlier_pattern = "|".join(re.escape(verb) for verb in earlier_verbs)
+    if re.search(rf"\b(?:{earlier_pattern})\b", prefix):
+        return command_text
+    return "remove all " + command_text[match.end():].lstrip()
 
 DEFAULT_QUANTITIES = {
     'a': 1, 'an': 1, 'one': 1, 'two': 2, 'three': 3,
@@ -297,7 +320,7 @@ def interpret_command(
         logging.warning(f"Command too long: {len(command_text)} characters")
         return None, None
 
-    command_text = command_text.lower().strip()
+    command_text = _alias_clear_command(command_text.lower().strip())
     command_type = _classify_verb(command_text, config_manager)
     if command_type is None:
         return None, None

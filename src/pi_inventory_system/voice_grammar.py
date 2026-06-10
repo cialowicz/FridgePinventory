@@ -16,6 +16,7 @@ import threading
 
 from .command_processor import (
     ADD_VERBS,
+    CLEAR_VERBS,
     DEFAULT_QUANTITIES,
     REMOVE_VERBS,
     SET_VERBS,
@@ -80,6 +81,7 @@ def build_jsgf(known_words=None) -> str:
         return kept
 
     action_verbs = keep(ADD_VERBS + REMOVE_VERBS)
+    clear_verbs = keep(CLEAR_VERBS)
     set_verbs = keep(SET_VERBS)
     undo_words = keep(UNDO_WORDS)
     quantities = keep(tuple(DEFAULT_QUANTITIES) + _EXTRA_QUANTITY_WORDS)
@@ -111,6 +113,9 @@ def build_jsgf(known_words=None) -> str:
         rules.append(f"<quantity> = {alts(quantities)};")
     else:
         branches[0] = "<verb> [of] [the] <item>"
+    if clear_verbs:
+        rules.append(f"<clear_verb> = {alts(clear_verbs)};")
+        branches.append("<clear_verb> [the] <item>")
     if undo_words:
         rules.append(f"<undo> = {alts(undo_words)};")
         branches.insert(0, "<undo>")

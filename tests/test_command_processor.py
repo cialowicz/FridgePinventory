@@ -137,6 +137,37 @@ def test_remove_all_maps_to_clamping_remove(mock_config_manager):
     assert item == InventoryItem(item_name="salmon", quantity=10000)
 
 
+@pytest.mark.parametrize("command", [
+    "clear salmon",
+    "clear the salmon",
+    "please clear salmon",
+])
+def test_clear_aliases_to_remove_all(command, mock_config_manager):
+    command_type, item = interpret_command(command, mock_config_manager)
+    assert command_type == "remove"
+    assert item == InventoryItem(item_name="salmon", quantity=10000)
+
+
+def test_clear_without_item_returns_no_item(mock_config_manager):
+    command_type, item = interpret_command("clear", mock_config_manager)
+    assert command_type == "remove"
+    assert item is None
+
+
+def test_clear_after_other_verb_is_not_aliased(mock_config_manager):
+    # "clear" inside an item phrase must not hijack the real command.
+    command_type, item = interpret_command("add clear soup", mock_config_manager)
+    assert command_type == "add"
+    assert item is not None
+    assert item.quantity == 1
+
+
+def test_undo_before_clear_stays_undo(mock_config_manager):
+    command_type, item = interpret_command("cancel clear salmon", mock_config_manager)
+    assert command_type == "undo"
+    assert item is None
+
+
 @pytest.mark.parametrize("command,expected_type", [
     ("add chicken stock", "add"),
     ("remove chicken stock", "remove"),
