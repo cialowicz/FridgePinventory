@@ -269,6 +269,107 @@ def test_lozenge_border_color():
     )
 
 
+def test_gray_value_resolves_names_and_numbers():
+    gray = pi_inventory_system.display_manager._gray_value
+    assert gray('white', 0) == 255
+    assert gray('black', 255) == 0
+    assert gray('gray', 0) == 128
+    assert gray('grey', 0) == 128
+    assert gray(128, 0) == 128
+    assert gray(300, 0) == 255  # clamped
+    assert gray(-5, 255) == 0  # clamped
+    assert gray(None, 77) == 77
+    assert gray('not-a-color', 77) == 77
+    # CSS names resolve via their grayscale luminance
+    assert gray('yellow', 0) == 226
+
+
+def test_lozenge_accepts_named_colors():
+    """Shipped config uses color names; they must resolve to gray levels."""
+    mock_draw = MagicMock()
+    mock_draw.textbbox.return_value = (0, 0, 80, 20)
+    mock_font = MagicMock()
+
+    colors = {
+        'background': 'white',
+        'text': 'black',
+        'border_normal': 'black',
+        'border_low_stock': 'gray',
+        'low_stock_threshold': 2,
+    }
+
+    pi_inventory_system.display_manager.create_lozenge(
+        mock_draw, 0, 0, 100, 50, "Test Item", 1, mock_font, colors,
+    )
+    mock_draw.rounded_rectangle.assert_called_with(
+        [(0, 0), (100, 50)],
+        radius=12,
+        fill=255,
+        outline=128,
+        width=2,
+    )
+    assert mock_draw.text.call_args.kwargs['fill'] == 0
+
+
+def test_default_config_low_stock_border_is_visible():
+    """The shipped low-stock border color must render visibly darker than the
+    white background on the grayscale panel (regression: 'yellow' -> 226)."""
+    from pi_inventory_system.config_manager import DEFAULT_CONFIG
+
+    colors = DEFAULT_CONFIG['display']['colors']
+    border = pi_inventory_system.display_manager._gray_value(
+        colors['border_low_stock'], 128
+    )
+    background = pi_inventory_system.display_manager._gray_value(
+        colors['background'], 255
+    )
+    assert border <= 128
+    assert background - border >= 64
+
+
+def test_load_font_uses_configured_size(mock_config_manager, tmp_path):
+    """display.font.size from config must be honored when no size is passed."""
+    font_file = tmp_path / "font.ttf"
+    font_file.write_bytes(b"stub")
+    mock_config_manager.get_font_config.return_value = {
+        'path': str(font_file),
+        'size': 16,
+    }
+
+    pi_inventory_system.display_manager._FONT_CACHE.clear()
+    with patch('pi_inventory_system.display_manager.ImageFont') as mock_font:
+        mock_font.truetype.return_value = MagicMock()
+        pi_inventory_system.display_manager._load_font(mock_config_manager)
+
+    mock_font.truetype.assert_called_once_with(str(font_file), 16)
+
+
+def test_display_inventory_item_font_uses_configured_size(mock_config_manager, tmp_path):
+    """Item lozenges must render with display.font.size, not a hardcoded 24."""
+    font_file = tmp_path / "font.ttf"
+    font_file.write_bytes(b"stub")
+    mock_config_manager.get_font_config.return_value = {
+        'path': str(font_file),
+        'size': 16,
+    }
+    mock_display = MagicMock()
+    mock_display.WIDTH = 800
+    mock_display.HEIGHT = 480
+
+    pi_inventory_system.display_manager._FONT_CACHE.clear()
+    with patch('pi_inventory_system.display_manager.ImageFont') as mock_font:
+        mock_font.truetype.return_value = ImageFont.load_default()
+        assert pi_inventory_system.display_manager.display_inventory(
+            mock_display,
+            [("salmon", 1)],
+            mock_config_manager,
+        )
+
+    sizes = [call.args[1] for call in mock_font.truetype.call_args_list]
+    assert 16 in sizes
+    assert 24 in sizes  # header stays at its explicit size
+
+
 def test_lozenge_ellipsizes_long_text():
     mock_draw = MagicMock()
     mock_draw.textbbox.side_effect = lambda _pos, text, font=None: (0, 0, len(text) * 10, 20)

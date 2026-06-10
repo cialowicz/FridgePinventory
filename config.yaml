@@ -19,7 +19,7 @@ display:
     background: "white"
     text: "black"
     border_normal: "black"
-    border_low_stock: "yellow"
+    border_low_stock: "gray"  # grayscale panel: must be visibly darker than background
     low_stock_threshold: 2
   clear_on_shutdown: false
   max_stale_seconds: 300.0

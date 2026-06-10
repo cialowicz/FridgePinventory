@@ -34,7 +34,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
             'background': 'white',
             'text': 'black',
             'border_normal': 'black',
-            'border_low_stock': 'yellow',
+            'border_low_stock': 'gray',
             'low_stock_threshold': 2
         },
         'clear_on_shutdown': False,

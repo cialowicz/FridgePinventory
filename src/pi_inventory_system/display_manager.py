@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 from math import ceil
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageColor, ImageDraw, ImageFont
 
 # Import the Waveshare display driver
 from .waveshare_display import WaveshareDisplay
@@ -105,6 +105,42 @@ def _positive_int(value, default: int, *, allow_zero: bool = False) -> int:
     return parsed
 
 
+# The panel supports exactly four gray levels; map the common color names to
+# the level the driver's 4-gray quantizer will actually produce.
+_NAMED_GRAYS = {
+    'white': 0xFF,
+    'light gray': 0xC0, 'light grey': 0xC0,
+    'light_gray': 0xC0, 'light_grey': 0xC0,
+    'lightgray': 0xC0, 'lightgrey': 0xC0,
+    'gray': 0x80, 'grey': 0x80,
+    'dark gray': 0x80, 'dark grey': 0x80,
+    'dark_gray': 0x80, 'dark_grey': 0x80,
+    'darkgray': 0x80, 'darkgrey': 0x80,
+    'black': 0x00,
+}
+
+
+def _gray_value(value, default: int) -> int:
+    """Resolve a configured color (gray level int or color name) to 0-255."""
+    if isinstance(value, bool):
+        return default
+    if isinstance(value, (int, float)):
+        return min(255, max(0, int(value)))
+    if isinstance(value, str):
+        named = _NAMED_GRAYS.get(value.strip().lower())
+        if named is not None:
+            return named
+        try:
+            resolved = ImageColor.getcolor(value, 'L')
+            if isinstance(resolved, int):
+                return resolved
+        except ValueError:
+            pass
+        logger.warning(f"Unrecognized display color {value!r}; using {default}")
+        return default
+    return default
+
+
 def create_lozenge(draw, x, y, width, height, item_name, quantity, font, colors):
     """Create a lozenge shape with item name and quantity.
     
@@ -117,11 +153,11 @@ def create_lozenge(draw, x, y, width, height, item_name, quantity, font, colors)
         font: Font to use
         colors: Color configuration dict
     """
-    # Get colors (using grayscale values for Waveshare)
-    background_color = colors.get('background', 255)  # White
-    text_color = colors.get('text', 0)  # Black
-    border_normal = colors.get('border_normal', 0)  # Black
-    border_low_stock = colors.get('border_low_stock', 128)  # Gray
+    # Get colors (resolved to grayscale levels for the Waveshare panel)
+    background_color = _gray_value(colors.get('background'), 255)  # White
+    text_color = _gray_value(colors.get('text'), 0)  # Black
+    border_normal = _gray_value(colors.get('border_normal'), 0)  # Black
+    border_low_stock = _gray_value(colors.get('border_low_stock'), 128)  # Gray
     low_stock_threshold = colors.get('low_stock_threshold', 2)
     
     # Determine border color based on quantity
@@ -205,7 +241,8 @@ def display_inventory(display, inventory, config_manager):
         rows_per_page = available_height // (lozenge_height + spacing)
         max_items = rows_per_page * items_per_row
 
-        font = _load_font(config_manager, size=layout_config.get('font_size', 24))
+        # layout.font_size overrides; otherwise display.font.size from config.
+        font = _load_font(config_manager, size=layout_config.get('font_size'))
         header_font = _load_font(config_manager, size=24)
         timestamp_font = _load_font(config_manager, size=14)
         color_config = config_manager.get('display', 'colors', default={})
@@ -261,10 +298,16 @@ def display_inventory(display, inventory, config_manager):
 _FONT_CACHE: dict = {}
 
 
-def _load_font(config_manager, size=18):
-    """Load (and cache) a font with fallback options."""
+def _load_font(config_manager, size=None):
+    """Load (and cache) a font with fallback options.
+
+    When size is None, display.font.size from config is used (default 24).
+    """
     font_config = config_manager.get_font_config()
     primary_path = font_config.get('path', '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf')
+    if size is None:
+        size = font_config.get('size')
+    size = _positive_int(size, 24)
     cache_key = (primary_path, size)
     cached = _FONT_CACHE.get(cache_key)
     if cached is not None:
