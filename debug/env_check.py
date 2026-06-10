@@ -7,6 +7,8 @@ Safe to run any time (touches no hardware). Exit code 0 = all checks passed.
 
 import hashlib
 import os
+import shutil
+import subprocess
 import sys
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -45,6 +47,53 @@ def main() -> int:
     report(os.path.exists("/dev/spidev0.0"), "SPI device /dev/spidev0.0",
            "" if os.path.exists("/dev/spidev0.0")
            else "missing — enable SPI via raspi-config")
+
+    # SPI-related boot config: an overlay can leave /dev/spidev0.0 present
+    # while remapping or disabling the actual pins (e.g. spi0-0cs).
+    for cfg in ("/boot/firmware/config.txt", "/boot/config.txt"):
+        if os.path.exists(cfg):
+            with open(cfg) as f:
+                spi_lines = [line.strip() for line in f
+                             if "spi" in line.lower()
+                             and not line.strip().startswith("#")]
+            report(any("dtparam=spi=on" in line.replace(" ", "")
+                       for line in spi_lines),
+                   f"dtparam=spi=on in {cfg}")
+            for line in spi_lines:
+                flagged = "dtoverlay" in line
+                print(f"         {line}"
+                      + ("   <-- overlay touching SPI, verify it" if flagged
+                         else ""))
+            break
+    else:
+        report(False, "boot config.txt", "not found")
+
+    # Pin mux: GPIO 9/10/11 must be in their SPI0 alt function, otherwise the
+    # kernel happily "transmits" while the physical pins never move.
+    # Pi 5 uses pinctrl; earlier models raspi-gpio (same output format).
+    tool = shutil.which("pinctrl") or shutil.which("raspi-gpio")
+    if tool is None:
+        report(False, "SPI pin mux", "pinctrl/raspi-gpio not found")
+    else:
+        try:
+            out = subprocess.run([tool, "get", "8-11"], capture_output=True,
+                                 text=True, timeout=10).stdout
+        except Exception as e:
+            out = ""
+            report(False, "SPI pin mux", f"{tool} failed: {e}")
+        if out:
+            mux_ok = True
+            for line in out.strip().splitlines():
+                print(f"         {line.strip()}")
+                gpio = line.split(":")[0].strip()
+                # 8/CE0 may legitimately be a kernel-driven GPIO output;
+                # 9-11 (MISO/MOSI/SCLK) must show their SPI0 alt function.
+                if gpio in ("9", "10", "11") and "SPI0" not in line:
+                    mux_ok = False
+            report(mux_ok, "GPIO 9/10/11 muxed to SPI0",
+                   "" if mux_ok else
+                   "pins not in SPI0 alt function — SPI writes go nowhere; "
+                   "check dtoverlays and reboot after config changes")
 
     # Python deps the driver needs
     for mod in ("spidev", "gpiozero", "numpy", "PIL"):
