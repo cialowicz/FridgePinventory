@@ -235,24 +235,29 @@ def display_inventory(display, inventory, config_manager):
         spacing = _positive_int(layout_config.get('spacing'), 15, allow_zero=True)
         lozenge_height = _positive_int(layout_config.get('lozenge_height'), 60)
 
-        available_width = display.WIDTH - (2 * margin) - ((items_per_row - 1) * spacing)
-        lozenge_width = available_width // items_per_row
-        available_height = display.HEIGHT - (2 * margin)
-        rows_per_page = available_height // (lozenge_height + spacing)
-        max_items = rows_per_page * items_per_row
-
         # layout.font_size overrides; otherwise display.font.size from config.
         font = _load_font(config_manager, size=layout_config.get('font_size'))
         header_font = _load_font(config_manager, size=24)
-        timestamp_font = _load_font(config_manager, size=14)
+        timestamp_font = _load_font(config_manager, size=20)
         color_config = config_manager.get('display', 'colors', default={})
+
+        timestamp = time.strftime("Updated %Y-%m-%d %H:%M")
+        ts_bbox = draw.textbbox((0, 0), timestamp, font=timestamp_font)
+        ts_y = display.HEIGHT - (ts_bbox[3] - ts_bbox[1]) - 8
+
+        start_y = 50
+        available_width = display.WIDTH - (2 * margin) - ((items_per_row - 1) * spacing)
+        lozenge_width = available_width // items_per_row
+        # Lozenges must stay above the timestamp footer.
+        available_height = ts_y - start_y
+        rows_per_page = (available_height + spacing) // (lozenge_height + spacing)
+        max_items = rows_per_page * items_per_row
 
         header_text = "Fridge Inventory"
         header_bbox = draw.textbbox((0, 0), header_text, font=header_font)
         header_x = (display.WIDTH - (header_bbox[2] - header_bbox[0])) // 2
         draw.text((header_x, 10), header_text, fill=0, font=header_font)
 
-        start_y = 50
         items_displayed = 0
         inventory_to_render = list(inventory)
         if len(inventory_to_render) > max_items and max_items > 0:
@@ -278,7 +283,7 @@ def display_inventory(display, inventory, config_manager):
             col = items_displayed % items_per_row
             x = margin + col * (lozenge_width + spacing)
             y = start_y + row * (lozenge_height + spacing)
-            if y + lozenge_height > display.HEIGHT - margin:
+            if y + lozenge_height > ts_y:
                 logger.info(f"Reached display limit at item {i}")
                 break
 
@@ -286,11 +291,8 @@ def display_inventory(display, inventory, config_manager):
                            item_name, quantity, font, color_config)
             items_displayed += 1
 
-        timestamp = time.strftime("Updated %Y-%m-%d %H:%M")
-        ts_bbox = draw.textbbox((0, 0), timestamp, font=timestamp_font)
-        draw.text((display.WIDTH - (ts_bbox[2] - ts_bbox[0]) - 10,
-                   display.HEIGHT - 25),
-                  timestamp, fill=128, font=timestamp_font)
+        draw.text((display.WIDTH - (ts_bbox[2] - ts_bbox[0]) - 10, ts_y),
+                  timestamp, fill=0, font=timestamp_font)
         logger.info(f"Displayed {items_displayed} inventory items")
 
     return _render(display, _draw, "inventory display")
