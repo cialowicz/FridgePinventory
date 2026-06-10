@@ -31,6 +31,7 @@
 import logging
 from . import epdconfig
 
+import numpy as np
 import PIL
 from PIL import Image
 import io
@@ -43,6 +44,10 @@ GRAY1  = 0xff #white
 GRAY2  = 0xC0
 GRAY3  = 0x80 #gray
 GRAY4  = 0x00 #Blackest
+
+# Upper bound for a busy-pin wait; a stuck BUSY line (bad wiring, failed
+# panel) must surface as an error instead of hanging the caller forever.
+BUSY_TIMEOUT_MS = 30000
 
 logger = logging.getLogger(__name__)
 
@@ -91,8 +96,14 @@ class EPD:
     def ReadBusy(self):
         logger.debug("e-Paper busy H")
         epdconfig.delay_ms(100)
+        waited_ms = 0
         while(epdconfig.digital_read(self.busy_pin) == 1):      # 0: idle, 1: busy
+            if waited_ms >= BUSY_TIMEOUT_MS:
+                raise RuntimeError(
+                    f"e-Paper busy pin stuck high for {BUSY_TIMEOUT_MS} ms"
+                )
             epdconfig.delay_ms(5)
+            waited_ms += 5
         logger.debug("e-Paper busy release")
         
     def TurnOnDisplay(self):
@@ -326,40 +337,37 @@ class EPD:
         return buf
     
     def getbuffer_4Gray(self, image):
-        # logger.debug("bufsiz = ",int(self.width/8) * self.height)
-        buf = [0xFF] * (int(self.width / 4) * self.height)
+        """Pack an L-mode image into 2-bit codes, 4 pixels per byte (MSB
+        first). Vectorized with numpy; byte-identical to the original
+        per-pixel Waveshare loop, which took seconds per frame on a Pi."""
         image_monocolor = image.convert('L')
         imwidth, imheight = image_monocolor.size
-        pixels = image_monocolor.load()
-        i=0
-        # logger.debug("imwidth = %d, imheight = %d",imwidth,imheight)
-        if(imwidth == self.width and imheight == self.height):
+        arr = np.asarray(image_monocolor, dtype=np.uint8)
+
+        if imwidth == self.width and imheight == self.height:
             logger.debug("Vertical")
-            for y in range(imheight):
-                for x in range(imwidth):
-                    # Set the bits for the column of pixels at the current position.
-                    if(pixels[x, y] == 0xC0):
-                        pixels[x, y] = 0x80
-                    elif (pixels[x, y] == 0x80):
-                        pixels[x, y] = 0x40
-                    i= i+1
-                    if(i%4 == 0):
-                        buf[int((x + (y * self.width))/4)] = ((pixels[x-3, y]&0xc0) | (pixels[x-2, y]&0xc0)>>2 | (pixels[x-1, y]&0xc0)>>4 | (pixels[x, y]&0xc0)>>6)
-                        
-        elif(imwidth == self.height and imheight == self.width):
+        elif imwidth == self.height and imheight == self.width:
             logger.debug("Horizontal")
-            for x in range(imwidth):
-                for y in range(imheight):
-                    newx = y
-                    newy = self.height - x - 1
-                    if(pixels[x, y] == 0xC0):
-                        pixels[x, y] = 0x80
-                    elif (pixels[x, y] == 0x80):
-                        pixels[x, y] = 0x40
-                    i= i+1
-                    if(i%4 == 0):
-                        buf[int((newx + (newy * self.width))/4)] = ((pixels[x, y-3]&0xc0) | (pixels[x, y-2]&0xc0)>>2 | (pixels[x, y-1]&0xc0)>>4 | (pixels[x, y]&0xc0)>>6) 
-        return buf
+            arr = np.rot90(arr)  # pixel (x, y) -> (y, height - 1 - x)
+        else:
+            logger.warning(
+                "Wrong image dimensions: must be %dx%d", self.width, self.height
+            )
+            return bytearray([0xFF] * (int(self.width / 4) * self.height))
+
+        # Remap the exact driver gray levels before truncating to the top two
+        # bits: 0xC0 (light gray) -> code 10, 0x80 (dark gray) -> code 01.
+        remapped = arr.copy()
+        remapped[arr == 0xC0] = 0x80
+        remapped[arr == 0x80] = 0x40
+        codes = remapped >> 6
+        packed = (
+            (codes[:, 0::4] << 6)
+            | (codes[:, 1::4] << 4)
+            | (codes[:, 2::4] << 2)
+            | codes[:, 3::4]
+        )
+        return bytearray(packed.tobytes())
 
     def display(self, image):
         self.send_command(0x24)
@@ -451,72 +459,36 @@ class EPD:
 
         self.TurnOnDisplay_Partial()
 
+    # Bit per 2-bit gray code (0=black, 1=dark gray, 2=light gray, 3=white)
+    # for each controller RAM plane; the (0x24, 0x26) bit pair selects the
+    # gray level: white=(0,0), light=(1,0), dark=(0,1), black=(1,1).
+    _PLANE_24_LUT = np.array([1, 0, 1, 0], dtype=np.uint8)
+    _PLANE_26_LUT = np.array([1, 1, 0, 0], dtype=np.uint8)
+
+    def _4gray_planes(self, image):
+        """Expand a packed 4-gray buffer into the two 1-bit RAM planes.
+
+        Vectorized with numpy; byte-identical to the original per-byte loop,
+        which issued ~96k single-byte SPI transfers per refresh."""
+        data = np.frombuffer(bytes(bytearray(image)), dtype=np.uint8)
+        codes = np.empty((data.size, 4), dtype=np.uint8)
+        codes[:, 0] = data >> 6
+        codes[:, 1] = (data >> 4) & 0x03
+        codes[:, 2] = (data >> 2) & 0x03
+        codes[:, 3] = data & 0x03
+        flat = codes.reshape(-1)
+        plane_24 = np.packbits(self._PLANE_24_LUT[flat])
+        plane_26 = np.packbits(self._PLANE_26_LUT[flat])
+        return bytearray(plane_24.tobytes()), bytearray(plane_26.tobytes())
+
     def display_4GRAY(self, image):
-        IMAGE_COUNTER = (int(self.width/8) * self.height)
+        plane_24, plane_26 = self._4gray_planes(image)
         self.send_command(0x24)
-        for i in range(0, IMAGE_COUNTER):
-            temp3=0
-            for j in range(0, 2):
-                temp1 = image[i*2+j]
-                for k in range(0, 2):
-                    temp2 = temp1&0xC0 
-                    if(temp2 == 0xC0):
-                        temp3 |= 0x00
-                    elif(temp2 == 0x00):
-                        temp3 |= 0x01  
-                    elif(temp2 == 0x80): 
-                        temp3 |= 0x01 
-                    else: #0x40
-                        temp3 |= 0x00 
-                    temp3 <<= 1	
-                    
-                    temp1 <<= 2
-                    temp2 = temp1&0xC0 
-                    if(temp2 == 0xC0): 
-                        temp3 |= 0x00
-                    elif(temp2 == 0x00): 
-                        temp3 |= 0x01
-                    elif(temp2 == 0x80):
-                        temp3 |= 0x01
-                    else :   #0x40
-                        temp3 |= 0x00	
-                    if(j!=1 or k!=1):				
-                        temp3 <<= 1
-                    temp1 <<= 2
-            self.send_data(temp3)
-            
-        self.send_command(0x26)	       
-        for i in range(0, IMAGE_COUNTER):
-            temp3=0
-            for j in range(0, 2):
-                temp1 = image[i*2+j]
-                for k in range(0, 2):
-                    temp2 = temp1&0xC0 
-                    if(temp2 == 0xC0):
-                        temp3 |= 0x00
-                    elif(temp2 == 0x00):
-                        temp3 |= 0x01
-                    elif(temp2 == 0x80):
-                        temp3 |= 0x00
-                    else: #0x40
-                        temp3 |= 0x01 
-                    temp3 <<= 1	
-                    
-                    temp1 <<= 2
-                    temp2 = temp1&0xC0 
-                    if(temp2 == 0xC0): 
-                        temp3 |= 0x00
-                    elif(temp2 == 0x00): 
-                        temp3 |= 0x01
-                    elif(temp2 == 0x80):
-                        temp3 |= 0x00 
-                    else:    #0x40
-                            temp3 |= 0x01	
-                    if(j!=1 or k!=1):					
-                        temp3 <<= 1
-                    temp1 <<= 2
-            self.send_data(temp3)
-        
+        self.send_data2(plane_24)
+
+        self.send_command(0x26)
+        self.send_data2(plane_26)
+
         self.TurnOnDisplay_4GRAY()
 
     def sleep(self):   
