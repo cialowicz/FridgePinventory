@@ -19,6 +19,12 @@ An inventory management system for a chest freezer, built using a Raspberry Pi 5
 - SQLite database for persistent storage
 - Command history with undo support
 
+## Hardware Images
+
+![Annotated FridgePinventory Hardware Components](docs/annotated.png)
+
+![FridgePinventory e-Ink Display](docs/display.jpg)
+
 ## Setup Instructions
 
 ### For Raspberry Pi (Recommended)
